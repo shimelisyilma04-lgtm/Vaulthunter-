@@ -14,12 +14,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "rpc:check": "tsx src/index.ts"
+    "rpc:check": "tsx src/index.ts",
+    "aave:scan": "tsx src/aave/scan.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "pino": "^9.6.0",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "ethers": "^6.13.5"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
