@@ -130,9 +130,21 @@ export class AaveStore {
         updated_at = CURRENT_TIMESTAMP
     `);
     const transaction = this.db.transaction(() => {
-      for (const event of events) insertEvent.run(event);
+      const upsertBorrower = this.db.prepare(`
+        INSERT INTO aave_borrowers
+          (chain_id, pool_address, address, first_seen_block, last_seen_block)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(chain_id, pool_address, address) DO UPDATE SET
+          first_seen_block = MIN(aave_borrowers.first_seen_block, excluded.first_seen_block),
+          last_seen_block = MAX(aave_borrowers.last_seen_block, excluded.last_seen_block)
+      `);
+      for (const event of events) {
+        insertEvent.run(event);
+        upsertBorrower.run(
+          event.chainId, event.poolAddress, event.borrower, event.blockNumber, event.blockNumber
+        );
+      }
       upsertCheckpoint.run(protocol, chainId, poolAddress, lastBlock, lastBlockHash);
-      this.rebuildBorrowers(chainId, poolAddress);
     });
     transaction();
   }
