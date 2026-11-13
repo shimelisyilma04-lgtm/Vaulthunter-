@@ -1,52 +1,31 @@
 # VaultHunter
 
-VaultHunter is an open-source research and monitoring foundation for DeFi liquidation opportunities and incentivized vault-keeper tasks.
+VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 
-## Current status
+## Current implementation
 
-**Milestone 1: read-only foundation.** This repository currently contains protocol-independent domain logic and configuration scaffolding. It does not submit transactions, custody funds, or promise profitable opportunities.
+- Ethereum JSON-RPC connectivity.
+- Tested integer-based liquidation screening and profitability calculations.
+- Aave V3 Ethereum bounded borrower scanner: reads recent Borrow events, resolves the Pool through the official addresses provider, and checks current account health directly against the Pool.
+- No wallet, private key, transaction signing, or transaction submission.
 
-## Initial scope
+## Run the Aave scanner
 
-- Liquidation monitoring, beginning with Aave V3 after its adapter is implemented against verified protocol interfaces.
-- Morpho Blue market monitoring as a second integration.
-- Keeper-task discovery only where an explicit, verifiable reward mechanism exists.
-- Conservative opportunity evaluation that accounts for debt repayment, swap costs, gas, flash-loan fees, builder fees, and a safety margin.
-
-## Safety model
-
-- Read-only monitoring by default.
-- Execution is disabled unless a future, separately reviewed release explicitly enables it.
-- Never commit private keys, seed phrases, API secrets, or production RPC credentials.
-- A positive estimated spread is not proof of an executable or profitable transaction. Simulate against a pinned block and account for competition and changing state.
-- Use integer base units for token amounts; do not use JavaScript floating-point arithmetic for on-chain quantities.
-
-## Requirements
-
-- Node.js 20+
-- npm 10+
-
-## Local development
+Requires Node.js 20+ and an Ethereum Mainnet RPC URL.
 
 ```bash
 npm install
-cp .env.example .env
-npm run typecheck
-npm test
-npm run dev
+ETHEREUM_RPC_URL="https://YOUR_ETHEREUM_RPC_ENDPOINT" npm run aave:scan
 ```
 
-The current app is a small read-only domain foundation. Protocol RPC adapters, fork simulation, keeper integrations, and any transaction execution are future milestones.
+Optional configuration: `AAVE_SCAN_LOOKBACK_BLOCKS` (1–10,000; default 2,000).
 
-## Planned milestones
+See [Aave scanner documentation](docs/AAVE_SCANNER.md) for the discovery window and limitations.
 
-1. Read-only foundation, typed configuration, and tested domain calculations.
-2. Verified Aave V3 and Morpho Blue data adapters.
-3. Liquidation and explicitly incentivized keeper-task discovery.
-4. Profitability engine with conservative cost assumptions.
-5. Fork-based simulation and risk controls.
-6. Independent security review before considering any execution capability.
+## Safety and scope
 
-## Disclaimer
+A recent Borrow-event scan is not a complete index of all Aave borrowers. It can miss accounts whose borrowing events occurred before the selected window. Current account health is queried after event discovery and may change immediately. A result is a candidate for further investigation, not proof that a liquidation transaction will succeed or be profitable.
 
-This is experimental software, not financial advice. DeFi protocols, smart contracts, oracles, and transaction execution carry substantial risks, including total loss. Do not fund or deploy an executor based solely on estimates from this software.
+Before any future execution capability, the system needs durable historical indexing, reorg-safe updates, exact on-chain eligibility checks, pinned-block simulation, conservative cost modelling, explicit risk limits, and independent security review. Execution is deliberately out of scope and disabled.
+
+This experimental software is not financial advice. DeFi systems carry substantial risk, including total loss.
