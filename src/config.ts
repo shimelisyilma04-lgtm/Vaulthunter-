@@ -7,7 +7,10 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   ETHEREUM_RPC_URL: z.string().url().optional().or(z.literal("")),
   AAVE_SCAN_LOOKBACK_BLOCKS: z.coerce.number().int().min(1).max(10000).default(100),
-  AAVE_INDEXER_START_BLOCK: z.coerce.number().int().min(0).optional(),
+  AAVE_INDEXER_START_BLOCK: z.preprocess(
+    (value) => value === "" || value === undefined ? undefined : Number(value),
+    z.number().int().min(0).optional()
+  ),
   AAVE_INDEXER_CONFIRMATIONS: z.coerce.number().int().min(1).max(256).default(12),
   AAVE_INDEXER_BATCH_BLOCKS: z.coerce.number().int().min(1).max(10).default(10),
   AAVE_INDEXER_POLL_INTERVAL_MS: z.coerce.number().int().min(5000).max(3600000).default(30000),
