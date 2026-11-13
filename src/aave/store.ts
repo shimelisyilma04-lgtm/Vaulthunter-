@@ -179,12 +179,16 @@ export class AaveStore {
     `).run(chainId, poolAddress);
   }
 
-  listBorrowers(chainId: number, poolAddress: string): BorrowerRecord[] {
+  listBorrowers(chainId: number, poolAddress: string, limit = 100): BorrowerRecord[] {
     return this.db.prepare(`
       SELECT address, first_seen_block AS firstSeenBlock, last_seen_block AS lastSeenBlock
       FROM aave_borrowers WHERE chain_id = ? AND pool_address = ?
-      ORDER BY last_seen_block DESC
-    `).all(chainId, poolAddress) as BorrowerRecord[];
+      ORDER BY
+        CASE WHEN snapshot_updated_at IS NULL THEN 0 ELSE 1 END ASC,
+        snapshot_updated_at ASC,
+        last_seen_block DESC
+      LIMIT ?
+    `).all(chainId, poolAddress, limit) as BorrowerRecord[];
   }
 
   saveSnapshot(snapshot: BorrowerSnapshot): void {
