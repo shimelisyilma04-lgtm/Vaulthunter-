@@ -79,12 +79,29 @@ export async function scanAaveBorrowers(
     const toBlock = await provider.getBlockNumber();
     const fromBlock = Math.max(0, toBlock - lookbackBlocks + 1);
 
-    const logs: Log[] = await provider.getLogs({
-      address: poolAddress,
-      fromBlock,
-      toBlock,
-      topics: [borrowTopic]
-    });
+    const logs: Log[] = [];
+    const blockRange = 10; // Alchemy Free tier permits at most a 10-block eth_getLogs range.
+    const ranges: Array<{ fromBlock: number; toBlock: number }> = [];
+    for (let start = fromBlock; start <= toBlock; start += blockRange) {
+      ranges.push({
+        fromBlock: start,
+        toBlock: Math.min(toBlock, start + blockRange - 1)
+      });
+    }
+
+    // Keep concurrency low to respect public RPC rate limits.
+    for (let offset = 0; offset < ranges.length; offset += 4) {
+      const batch = ranges.slice(offset, offset + 4);
+      const logBatches = await Promise.all(batch.map((range) =>
+        provider.getLogs({
+          address: poolAddress,
+          fromBlock: range.fromBlock,
+          toBlock: range.toBlock,
+          topics: [borrowTopic]
+        })
+      ));
+      for (const batchLogs of logBatches) logs.push(...batchLogs);
+    }
 
     const borrowers = new Set<string>();
     for (const log of logs) {
