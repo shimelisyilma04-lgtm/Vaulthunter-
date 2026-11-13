@@ -19,3 +19,8 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm test
+      - name: Verify configured Ethereum RPC
+        if: ${{ secrets.ETHEREUM_RPC_URL != '' }}
+        run: npm run rpc:check
+        env:
+          ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
