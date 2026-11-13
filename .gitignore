@@ -8,3 +8,8 @@ coverage/
 .DS_Store
 .vscode/
 .idea/
+# Local persistent indexer database and SQLite sidecars
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
