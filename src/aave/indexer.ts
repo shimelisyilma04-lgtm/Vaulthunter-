@@ -60,7 +60,7 @@ async function getLogsWithRetry(
 function decodeBorrowEvents(
   logs: Log[],
   poolAddress: string,
-  timestamp: number
+  timestampsByBlock: Map<number, number>
 ): StoredBorrowEvent[] {
   const events: StoredBorrowEvent[] = [];
   for (const log of logs) {
@@ -80,7 +80,7 @@ function decodeBorrowEvents(
         borrower: getAddress(borrower),
         reserve: getAddress(reserve),
         amount: amount.toString(),
-        blockTimestamp: timestamp
+        blockTimestamp: timestampsByBlock.get(log.blockNumber) ?? 0
       });
     } catch {
       // Malformed or unknown events are ignored, not persisted as borrower activity.
@@ -154,7 +154,12 @@ export async function runAaveIndexerPass(
       const logs = await getLogsWithRetry(provider, poolAddress, fromBlock, toBlock);
       const endBlock = await provider.getBlock(toBlock);
       if (!endBlock?.hash) throw new Error(`Unable to retrieve block hash for ${toBlock}`);
-      const events = decodeBorrowEvents(logs, poolAddress, endBlock.timestamp);
+      const timestampsByBlock = new Map<number, number>();
+      for (const blockNumber of new Set(logs.map((log) => log.blockNumber))) {
+        const eventBlock = await provider.getBlock(blockNumber);
+        if (eventBlock) timestampsByBlock.set(blockNumber, eventBlock.timestamp);
+      }
+      const events = decodeBorrowEvents(logs, poolAddress, timestampsByBlock);
       store.saveEventsAndCheckpoint(
         protocol, chainId, poolAddress, events, toBlock, endBlock.hash
       );
