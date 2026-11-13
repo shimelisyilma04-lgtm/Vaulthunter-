@@ -11,6 +11,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,7 +22,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Verify configured Ethereum RPC
-        if: ${{ secrets.ETHEREUM_RPC_URL != '' }}
+        if: ${{ env.ETHEREUM_RPC_URL != '' }}
         run: npm run rpc:check
-        env:
-          ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
