@@ -170,7 +170,9 @@ export async function runAaveIndexerPass(
     }
 
     const pool = new Contract(poolAddress, AAVE_POOL_ABI, provider);
-    const borrowers = store.listBorrowers(chainId, poolAddress);
+    const borrowers = store.listBorrowers(
+      chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE
+    );
     let snapshotsUpdated = 0;
     let accountReadFailures = 0;
 
