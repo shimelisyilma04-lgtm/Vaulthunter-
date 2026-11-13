@@ -24,6 +24,7 @@ The first backfill begins at the configured start block and advances in small bl
 - `AAVE_INDEXER_CONFIRMATIONS`: confirmation depth (default 12).
 - `AAVE_INDEXER_BATCH_BLOCKS`: blocks per `eth_getLogs` request (default 10, maximum 10).
 - `AAVE_INDEXER_POLL_INTERVAL_MS`: continuous polling interval (default 30 seconds).
+- `AAVE_INDEXER_SNAPSHOT_BATCH_SIZE`: maximum borrowers refreshed per pass (default 100); oldest snapshots are refreshed first so large markets rotate fairly.
 - `VAULTHUNTER_DB_PATH`: SQLite database path (default `./data/vaulthunter.sqlite`).
 
 ## Reorg and durability notes
