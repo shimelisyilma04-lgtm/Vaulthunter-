@@ -15,18 +15,22 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "rpc:check": "tsx src/index.ts",
-    "aave:scan": "tsx src/aave/scan.ts"
+    "aave:scan": "tsx src/aave/scan.ts",
+    "aave:index:once": "tsx src/aave/indexer-cli.ts --once",
+    "aave:index": "tsx src/aave/indexer-cli.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "pino": "^9.6.0",
     "zod": "^4.6.7",
-    "ethers": "^6.13.5"
+    "ethers": "^6.13.5",
+    "better-sqlite3": "^11.8.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "@types/better-sqlite3": "^7.6.12"
   }
 }
