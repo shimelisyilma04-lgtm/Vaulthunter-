@@ -62,7 +62,7 @@ export async function scanAaveBorrowers(
     throw new Error("Aave scan lookback must be between 1 and 10000 blocks");
   }
 
-  const provider = new JsonRpcProvider(rpcUrl);
+  const provider = new JsonRpcProvider(rpcUrl, 1, { staticNetwork: true });
   try {
     const network = await provider.getNetwork();
     if (network.chainId !== 1n) {
@@ -89,18 +89,27 @@ export async function scanAaveBorrowers(
       });
     }
 
-    // Keep concurrency low to respect public RPC rate limits.
-    for (let offset = 0; offset < ranges.length; offset += 4) {
-      const batch = ranges.slice(offset, offset + 4);
-      const logBatches = await Promise.all(batch.map((range) =>
-        provider.getLogs({
-          address: poolAddress,
-          fromBlock: range.fromBlock,
-          toBlock: range.toBlock,
-          topics: [borrowTopic]
-        })
-      ));
-      for (const batchLogs of logBatches) logs.push(...batchLogs);
+    // Serialize log requests to stay within Alchemy Free-tier throughput limits.
+    for (const range of ranges) {
+      let fetched = false;
+      for (let attempt = 0; attempt < 5 && !fetched; attempt += 1) {
+        try {
+          const batchLogs = await provider.getLogs({
+            address: poolAddress,
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+            topics: [borrowTopic]
+          });
+          logs.push(...batchLogs);
+          fetched = true;
+        } catch (error) {
+          if (attempt === 4) throw error;
+          const delayMs = 500 * (2 ** attempt);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+      // Small pacing delay prevents bursts on free RPC plans.
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
     const borrowers = new Set<string>();
