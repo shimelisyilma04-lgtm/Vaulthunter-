@@ -30,4 +30,4 @@ jobs:
         if: ${{ env.ETHEREUM_RPC_URL != '' }}
         run: npm run aave:scan
         env:
-          AAVE_SCAN_LOOKBACK_BLOCKS: 2000
+          AAVE_SCAN_LOOKBACK_BLOCKS: 100
