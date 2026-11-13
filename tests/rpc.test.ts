@@ -46,16 +46,24 @@ describe("Ethereum JSON-RPC connection", () => {
   it("surfaces JSON-RPC errors", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            error: { code: -32000, message: "upstream unavailable" }
-          }),
-          { status: 200 }
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              error: { code: -32000, message: "upstream unavailable" }
+            }),
+            { status: 200 }
+          )
         )
-      )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 2, result: "0x1" }),
+            { status: 200 }
+          )
+        )
     );
 
     await expect(
