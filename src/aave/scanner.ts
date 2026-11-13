@@ -37,11 +37,7 @@ export interface AaveScanResult {
 }
 
 const poolInterface = new Interface(AAVE_POOL_ABI);
-const borrowTopic = poolInterface.getEvent("Borrow")?.topicHash;
-
-if (!borrowTopic) {
-  throw new Error("Aave Borrow event ABI is unavailable");
-}
+const borrowTopic = poolInterface.getEvent("Borrow")!.topicHash;
 
 export function isLiquidationEligible(healthFactorWad: bigint): boolean {
   return healthFactorWad > 0n && healthFactorWad < WAD;
@@ -110,9 +106,9 @@ export async function scanAaveBorrowers(
       const results = await Promise.all(batch.map(async (borrower) => {
         try {
           const account = await pool.getFunction("getUserAccountData")(borrower) as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
-          const collateral = asBigInt(account.totalCollateralBase, "collateral");
-          const debt = asBigInt(account.totalDebtBase, "debt");
-          const healthFactor = asBigInt(account.healthFactor, "health factor");
+          const collateral = asBigInt(account[0], "collateral");
+          const debt = asBigInt(account[1], "debt");
+          const healthFactor = asBigInt(account[5], "health factor");
           if (debt === 0n || !isLiquidationEligible(healthFactor)) return null;
           return {
             protocol: "aave-v3" as const,
