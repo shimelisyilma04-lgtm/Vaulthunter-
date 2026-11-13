@@ -37,9 +37,9 @@ export interface AaveScanResult {
 }
 
 const poolInterface = new Interface(AAVE_POOL_ABI);
-const borrowEvent = poolInterface.getEvent("Borrow");
+const borrowTopic = poolInterface.getEvent("Borrow")?.topicHash;
 
-if (!borrowEvent) {
+if (!borrowTopic) {
   throw new Error("Aave Borrow event ABI is unavailable");
 }
 
@@ -78,7 +78,7 @@ export async function scanAaveBorrowers(
       ADDRESSES_PROVIDER_ABI,
       provider
     );
-    const poolAddress = getAddress(await addressesProvider.getPool() as string);
+    const poolAddress = getAddress(await addressesProvider.getFunction("getPool")() as string);
     const pool = new Contract(poolAddress, AAVE_POOL_ABI, provider);
     const toBlock = await provider.getBlockNumber();
     const fromBlock = Math.max(0, toBlock - lookbackBlocks + 1);
@@ -87,7 +87,7 @@ export async function scanAaveBorrowers(
       address: poolAddress,
       fromBlock,
       toBlock,
-      topics: [borrowEvent.topicHash]
+      topics: [borrowTopic]
     });
 
     const borrowers = new Set<string>();
@@ -109,7 +109,7 @@ export async function scanAaveBorrowers(
       const batch = addresses.slice(offset, offset + 8);
       const results = await Promise.all(batch.map(async (borrower) => {
         try {
-          const account = await pool.getUserAccountData(borrower);
+          const account = await pool.getFunction("getUserAccountData")(borrower) as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
           const collateral = asBigInt(account.totalCollateralBase, "collateral");
           const debt = asBigInt(account.totalDebtBase, "debt");
           const healthFactor = asBigInt(account.healthFactor, "health factor");
