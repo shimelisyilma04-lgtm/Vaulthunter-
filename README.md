@@ -42,13 +42,14 @@ The deployed service exposes:
 - `GET /healthz` — process health.
 - `GET /api/v1/status` — RPC configuration, indexer state, checkpoint, and stored counts.
 - `GET /api/v1/scan?lookbackBlocks=100` — bounded recent Borrow-event scan (1–500 blocks; requires a valid Ethereum Mainnet RPC URL).
+- `GET /api/v1/market` — current Aave V3 Ethereum market and reserve data, including liquidation bonuses, liquidity, oracle addresses, and flash-loan flags (AaveKit indexed data, not block-pinned).
 - `GET /api/v1/positions?user=0x...` — enrich a known borrower with AaveKit supply/borrow positions and account state (indexed data, not pinned to the RPC scan block).
 - `GET /api/v1/borrowers?limit=200` — stored borrower snapshots.
 - `GET /api/v1/candidates?limit=100` — stored snapshots currently flagged below HF 1.
 - `GET /api/v1/events?limit=50` — recent indexed Borrow events.
 - `GET /api/v1/estimate?... ` — caller-input Aave V3 liquidation screening estimate. Required query parameters: `healthFactor`, `totalDebtUsd`, `debtReserveUsd`, `collateralReserveUsd`, `collateralAvailableUsd`, `liquidationBonusBps`, and `gasCostUsd`. Optional: `flashLoanFeeBps`, `swapFeeBps`, `slippageBps`, `protocolFeeBps`, and `safetyBufferBps`.
 
-The estimate endpoint does not fetch or certify prices, reserve configuration, DEX quotes, flash-loan availability, or gas prices. Supply fresh same-block, pair-specific inputs from a trusted market adapter. A positive estimate is only a screening signal; pinned-block revalidation and exact transaction simulation are mandatory before any future execution. See [API and bot integration](docs/API.md).
+The market endpoint now retrieves current Aave reserve metadata and market liquidity from AaveKit. The estimate endpoint still does not certify same-block prices, DEX quotes, flash-loan route availability, or gas prices. Supply fresh same-block, pair-specific inputs from a trusted market adapter. A positive estimate is only a screening signal; pinned-block revalidation and exact transaction simulation are mandatory before any future execution. See [API and bot integration](docs/API.md).
 
 ## Other commands
 
