@@ -6,11 +6,13 @@ import { config, rpcConfigError } from "../config.js";
 import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
+import { fetchAaveMarketSnapshot } from "../aave/market.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const dashboardPath = join(process.cwd(), "dashboard", "index.html");
 let scanCache: { createdAt: number; lookbackBlocks: number; data: Awaited<ReturnType<typeof scanAaveBorrowers>> } | null = null;
+let marketCache: { createdAt: number; data: Awaited<ReturnType<typeof fetchAaveMarketSnapshot>> } | null = null;
 const scanInFlight = new Map<number, Promise<Awaited<ReturnType<typeof scanAaveBorrowers>>>>();
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -77,6 +79,16 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           },
           warning: "Liquidation eligibility is a health-factor snapshot, not proof of a profitable or executable liquidation."
         });
+        return;
+      }
+      if (url.pathname === "/api/v1/market") {
+        if (marketCache && Date.now() - marketCache.createdAt < 30000) {
+          send(res, 200, { ...marketCache.data, cached: true });
+          return;
+        }
+        const market = await fetchAaveMarketSnapshot();
+        marketCache = { createdAt: Date.now(), data: market };
+        send(res, 200, { ...market, cached: false });
         return;
       }
       if (url.pathname === "/api/v1/positions") {
