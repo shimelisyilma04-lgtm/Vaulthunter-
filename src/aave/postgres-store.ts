@@ -129,14 +129,15 @@ export class PostgresAaveStore implements AaveStorePort {
     }
   }
 
-  async listBorrowers(chainId: number, poolAddress: string, limit = 100): Promise<BorrowerRecord[]> {
+  async listBorrowers(chainId: number, poolAddress: string, limit = 100, offset = 0): Promise<BorrowerRecord[]> {
     await this.ready;
+    const safeLimit = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const safeOffset = Math.max(0, Math.trunc(offset));
     const result = await this.pool.query(
       `SELECT address,first_seen_block AS "firstSeenBlock",last_seen_block AS "lastSeenBlock"
        FROM aave_borrowers WHERE chain_id=$1 AND pool_address=$2
-       ORDER BY CASE WHEN snapshot_updated_at IS NULL THEN 0 ELSE 1 END,
-       snapshot_updated_at ASC,last_seen_block DESC LIMIT $3`,
-      [chainId,poolAddress,limit]
+       ORDER BY CASE WHEN first_seen_block=0 THEN 0 ELSE 1 END, address ASC LIMIT $3 OFFSET $4`,
+      [chainId,poolAddress,safeLimit,safeOffset]
     );
     return result.rows.map((row) => ({
       address: String(row.address), firstSeenBlock: Number(row.firstSeenBlock), lastSeenBlock: Number(row.lastSeenBlock)
