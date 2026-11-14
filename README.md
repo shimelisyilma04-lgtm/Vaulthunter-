@@ -5,7 +5,9 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 ## Current implementation
 
 - Ethereum JSON-RPC connectivity and Aave V3 Pool address resolution.
-- Bounded recent-event scanner for quick checks.
+- Bounded recent-event scanner for quick checks (configurable 1–10,000 block window; recent Borrow-event discovery only).
+- Read-only HTTP API and live dashboard for service health, indexer status, borrowers, events, scans, and liquidation estimates.
+- Conservative Aave V3 liquidation profitability screening calculator with close-factor, collateral-cap, protocol-fee, flash-loan, swap, slippage, gas, and safety-buffer inputs.
 - SQLite-backed incremental Aave V3 historical Borrow-event indexer.
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
 - Current health-factor snapshots for indexed borrowers.
@@ -13,7 +15,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 
 ## Dashboard preview
 
-A responsive static dashboard preview is available in `dashboard/index.html`. It currently uses clearly labeled illustrative sample data; it is not connected to the SQLite indexer or a live API. The repository is private, so publish the preview through Render after connecting the GitHub repository in Render Account Settings → Account Security → Git Deployment Credentials. Create a Static Site using branch `main`, publish directory `dashboard`, and an empty build command (or `echo ready`). No wallet connection or transaction execution is included.
+The responsive dashboard is served by the Node API at the Render service root and reads API-backed data. It includes live service/indexer status, recent scan output, borrower snapshots, and a caller-input profitability sandbox. Empty data states are real; the dashboard does not invent borrower metrics. No wallet connection or transaction execution is included.
 
 ## Run the Aave historical indexer
 
@@ -32,6 +34,20 @@ npm run aave:index
 ```
 
 The SQLite database defaults to `./data/vaulthunter.sqlite`. Use a persistent disk for hosted deployments. See [historical indexer setup](docs/AAVE_INDEXER.md).
+
+## Read-only HTTP API
+
+The deployed service exposes:
+
+- `GET /healthz` — process health.
+- `GET /api/v1/status` — RPC configuration, indexer state, checkpoint, and stored counts.
+- `GET /api/v1/scan?lookbackBlocks=100` — bounded recent Borrow-event scan (1–10,000 blocks; requires a valid Ethereum Mainnet RPC URL).
+- `GET /api/v1/borrowers?limit=200` — stored borrower snapshots.
+- `GET /api/v1/candidates?limit=100` — stored snapshots currently flagged below HF 1.
+- `GET /api/v1/events?limit=50` — recent indexed Borrow events.
+- `GET /api/v1/estimate?... ` — caller-input Aave V3 liquidation screening estimate. Required query parameters: `healthFactor`, `totalDebtUsd`, `debtReserveUsd`, `collateralReserveUsd`, `collateralAvailableUsd`, `liquidationBonusBps`, and `gasCostUsd`. Optional: `flashLoanFeeBps`, `swapFeeBps`, `slippageBps`, `protocolFeeBps`, and `safetyBufferBps`.
+
+The estimate endpoint does not fetch or certify prices, reserve configuration, DEX quotes, flash-loan availability, or gas prices. Supply fresh same-block, pair-specific inputs from a trusted market adapter. A positive estimate is only a screening signal; pinned-block revalidation and exact transaction simulation are mandatory before any future execution. See [API and bot integration](docs/API.md).
 
 ## Other commands
 
