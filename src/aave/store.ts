@@ -179,16 +179,15 @@ export class SqliteAaveStore {
     `).run(chainId, poolAddress);
   }
 
-  listBorrowers(chainId: number, poolAddress: string, limit = 100): BorrowerRecord[] {
+  listBorrowers(chainId: number, poolAddress: string, limit = 100, offset = 0): BorrowerRecord[] {
+    const safeLimit = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const safeOffset = Math.max(0, Math.trunc(offset));
     return this.db.prepare(`
       SELECT address, first_seen_block AS firstSeenBlock, last_seen_block AS lastSeenBlock
       FROM aave_borrowers WHERE chain_id = ? AND pool_address = ?
-      ORDER BY
-        CASE WHEN snapshot_updated_at IS NULL THEN 0 ELSE 1 END ASC,
-        snapshot_updated_at ASC,
-        last_seen_block DESC
-      LIMIT ?
-    `).all(chainId, poolAddress, limit) as BorrowerRecord[];
+      ORDER BY CASE WHEN first_seen_block = 0 THEN 0 ELSE 1 END ASC, address ASC
+      LIMIT ? OFFSET ?
+    `).all(chainId, poolAddress, safeLimit, safeOffset) as BorrowerRecord[];
   }
 
   upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): void {
@@ -295,7 +294,7 @@ export interface AaveStorePort {
   getCheckpoint(protocol: string, chainId: number, poolAddress: string): Promise<IndexerCheckpoint | null>;
   saveEventsAndCheckpoint(protocol: string, chainId: number, poolAddress: string, events: StoredBorrowEvent[], lastBlock: number, lastBlockHash: string): Promise<void>;
   rollbackTo(protocol: string, chainId: number, poolAddress: string, blockNumber: number, blockHash: string): Promise<void>;
-  listBorrowers(chainId: number, poolAddress: string, limit?: number): Promise<BorrowerRecord[]>;
+  listBorrowers(chainId: number, poolAddress: string, limit?: number, offset?: number): Promise<BorrowerRecord[]>;
   upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): Promise<void>;
   saveSnapshot(snapshot: BorrowerSnapshot): Promise<void>;
   getStats(chainId: number, poolAddress: string): Promise<{eventCount:number;borrowerCount:number;candidateCount:number;checkpoint:IndexerCheckpoint|null}>;
