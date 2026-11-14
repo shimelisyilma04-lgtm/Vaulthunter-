@@ -11,6 +11,7 @@ All endpoints are read-only. The service does not accept wallet credentials, sig
 | GET | `/healthz` | Process health |
 | GET | `/api/v1/status` | RPC configuration, indexer state, checkpoint, and stored counts |
 | GET | `/api/v1/scan?lookbackBlocks=100` | Scan a bounded recent Borrow-event window and read current account health |
+| GET | `/api/v1/market` | Current Aave V3 Ethereum market and reserve metadata/liquidity from AaveKit |
 | GET | `/api/v1/positions?user=0x...` | Enrich a known Ethereum borrower with AaveKit supply, borrow, and account-state data |
 | GET | `/api/v1/borrowers?limit=100` | Stored borrower snapshots |
 | GET | `/api/v1/candidates?limit=100` | Stored snapshots flagged below health factor 1 |
@@ -25,7 +26,7 @@ A health factor below 1 means the position is eligible by the health-factor test
 
 ## Position enrichment endpoint
 
-Use `GET /api/v1/positions?user=0x...` to fetch the selected user's supplied and borrowed assets, token amounts, USD values, and Aave account summary through the official AaveKit GraphQL API. This is useful for bots that already have a candidate address and need reserve-level context. It does not enumerate every borrower in the market. AaveKit responses may be cached and are not guaranteed to match the RPC scan's block; the API marks this as `provider-indexed-not-pinned` and returns a warning.
+Use `GET /api/v1/market` to retrieve Aave V3 Ethereum reserve metadata, liquidation bonus and threshold values, available liquidity, oracle addresses, and flash-loan enabled flags. This is useful for trader bots to discover reserve pairs and screen routes. It is provider-indexed and not pinned to a specific RPC block; fetch exact configuration and oracle values at one pinned block before simulation.\n\nUse `GET /api/v1/positions?user=0x...` to fetch the selected user's supplied and borrowed assets, token amounts, USD values, and Aave account summary through the official AaveKit GraphQL API. This is useful for bots that already have a candidate address and need reserve-level context. It does not enumerate every borrower in the market. AaveKit responses may be cached and are not guaranteed to match the RPC scan's block; the API marks this as `provider-indexed-not-pinned` and returns a warning.
 
 ## Profitability screening endpoint
 
@@ -51,7 +52,7 @@ Optional values default to zero, except `safetyBufferBps`, which defaults to 500
 - `protocolFeeBps`
 - `safetyBufferBps`
 
-The estimator uses Aave V3's standard 50% close factor, or up to 100% when health factor is at or below 0.95 or either selected reserve position is below $2,000. For partial liquidation it conservatively reserves at least $1,000 of debt and collateral. The exact current market configuration and deployed Pool logic remain authoritative; validate all rules against the selected market/version.
+The estimator applies Aave V3's standard 50% close factor, or up to 100% when health factor is at or below 0.95 or the selected debt/collateral reserve position is below $2,000. The close factor is applied to the selected debt-reserve position, not aggregate portfolio debt. Repayment is capped by the selected collateral balance after the liquidation bonus; no arbitrary minimum residual balance is assumed. The deployed Pool logic and exact market configuration remain authoritative.
 
 The response includes maximum estimated repayment, collateral seized, gross bonus, itemized costs, estimated net profit, and explicit warnings. It is a screening calculation, not a route quote, transaction simulation, or guarantee.
 
@@ -59,7 +60,7 @@ The response includes maximum estimated repayment, collateral seized, gross bonu
 
 1. Poll `/api/v1/status` and require a healthy service and configured RPC.
 2. Call `/api/v1/scan` with a conservative block window; treat the result as a candidate feed, not a complete market scan.
-3. Enrich a known borrower with `/api/v1/positions?user=...`, then independently fetch the borrower's account data and each relevant reserve's configuration/prices at the same pinned block using a trusted market adapter.
+3. Fetch `/api/v1/market` for reserve discovery and `/api/v1/positions?user=...` for a known borrower's supplied/borrowed assets; independently fetch the borrower's account data and reserve configuration/prices at the same pinned block using RPC.
 4. Obtain a real executable DEX route quote and flash-loan terms. Do not use the estimator's default zero fees as evidence that a route is free.
 5. Call `/api/v1/estimate` with the complete same-block values. Ignore any result with missing, stale, or mismatched inputs.
 6. Before any future execution, simulate the exact liquidation transaction against a fork or supported simulation service, revalidate health factor and reserve liquidity, and apply independent profit/risk thresholds.
