@@ -21,7 +21,7 @@ describe("estimateAaveV3Liquidation", () => {
     const result = estimateAaveV3Liquidation(base);
     expect(result.eligibleByHealthFactor).toBe(true);
     expect(result.closeFactorBps).toBe(5_000);
-    expect(result.maxRepayUsd).toBe(5_000);
+    expect(result.maxRepayUsd).toBe(2_500);
     expect(result.estimatedNetProfitUsd).toBeGreaterThan(0);
   });
 
@@ -38,6 +38,11 @@ describe("estimateAaveV3Liquidation", () => {
   it("does not return an opportunity for a healthy or debt-free account", () => {
     expect(estimateAaveV3Liquidation({ ...base, healthFactor: 1.01 }).eligibleByHealthFactor).toBe(false);
     expect(estimateAaveV3Liquidation({ ...base, totalDebtUsd: 0 }).maxRepayUsd).toBe(0);
+  });
+
+  it("applies close factor to selected reserve debt, not aggregate account debt", () => {
+    const result = estimateAaveV3Liquidation({ ...base, totalDebtUsd: 50_000, debtReserveUsd: 4_000 });
+    expect(result.maxRepayUsd).toBe(2_000);
   });
 
   it("caps repayment by available collateral after the liquidation bonus", () => {
