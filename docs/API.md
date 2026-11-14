@@ -60,6 +60,14 @@ The response includes maximum estimated repayment, collateral seized, gross bonu
 6. Before any future execution, simulate the exact liquidation transaction against a fork or supported simulation service, revalidate health factor and reserve liquidity, and apply independent profit/risk thresholds.
 7. Keep transaction execution disabled until a separate security review and explicit operator approval are complete.
 
+A minimal Node 20 polling client is included at [examples/poll-candidates.mjs](../examples/poll-candidates.mjs). Run it with:
+
+```bash
+VAULTHUNTER_API_URL=https://vaulthunter-core.onrender.com node examples/poll-candidates.mjs
+```
+
+It prints new read-only candidates as JSON and deduplicates them by borrower and observed block. It does not estimate routes or execute liquidations.
+
 ## Operational limits
 
 - The hosted Render free filesystem is ephemeral. SQLite event history and checkpoints can disappear on restart/redeploy; do not rely on the hosted SQLite store as durable production indexing.
