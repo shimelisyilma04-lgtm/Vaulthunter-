@@ -117,13 +117,11 @@ export async function runAaveIndexerPass(
 
     let nextBlock: number;
     if (!checkpoint) {
-      if (config.AAVE_INDEXER_START_BLOCK === undefined) {
-        throw new Error(
-          "AAVE_INDEXER_START_BLOCK is required for the first historical backfill. " +
-          "Set it to the Aave V3 Ethereum Pool deployment block."
-        );
-      }
-      nextBlock = config.AAVE_INDEXER_START_BLOCK;
+      // Safe hosted default: seed only the configured recent lookback window.
+      // A full-history backfill is an explicit opt-in via AAVE_INDEXER_START_BLOCK;
+      // scanning from the 2022 deployment block can require millions of RPC calls.
+      nextBlock = config.AAVE_INDEXER_START_BLOCK ??
+        Math.max(0, safeHead - config.AAVE_SCAN_LOOKBACK_BLOCKS + 1);
     } else {
       const canonical = await provider.getBlock(checkpoint.lastBlock);
       if (!canonical || canonical.hash?.toLowerCase() !== checkpoint.lastBlockHash.toLowerCase()) {
