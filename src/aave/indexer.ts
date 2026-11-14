@@ -12,7 +12,7 @@ import {
   AAVE_V3_ETHEREUM_ADDRESSES_PROVIDER,
   ADDRESSES_PROVIDER_ABI
 } from "./abi.js";
-import { AaveStore, type StoredBorrowEvent } from "./store.js";
+import type { AaveStorePort, StoredBorrowEvent } from "./store.js";
 
 const protocol = "aave-v3";
 const chainId = 1;
@@ -92,7 +92,7 @@ function decodeBorrowEvents(
 
 export async function runAaveIndexerPass(
   rpcUrl: string,
-  store: AaveStore
+  store: AaveStorePort
 ): Promise<IndexerPassResult> {
   const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
   let reorgDetected = false;
@@ -113,7 +113,7 @@ export async function runAaveIndexerPass(
 
     const head = await provider.getBlockNumber();
     const safeHead = Math.max(0, head - config.AAVE_INDEXER_CONFIRMATIONS);
-    const checkpoint = store.getCheckpoint(protocol, chainId, poolAddress);
+    const checkpoint = await store.getCheckpoint(protocol, chainId, poolAddress);
 
     let nextBlock: number;
     if (!checkpoint) {
@@ -134,7 +134,7 @@ export async function runAaveIndexerPass(
         );
         const rewind = await provider.getBlock(rewindBlock);
         if (!rewind?.hash) throw new Error(`Unable to verify canonical rewind block ${rewindBlock}`);
-        store.rollbackTo(protocol, chainId, poolAddress, rewindBlock, rewind.hash);
+        await store.rollbackTo(protocol, chainId, poolAddress, rewindBlock, rewind.hash);
         nextBlock = rewindBlock + 1;
       } else {
         nextBlock = checkpoint.lastBlock + 1;
@@ -161,7 +161,7 @@ export async function runAaveIndexerPass(
         if (eventBlock) timestampsByBlock.set(blockNumber, eventBlock.timestamp);
       }
       const events = decodeBorrowEvents(logs, poolAddress, timestampsByBlock);
-      store.saveEventsAndCheckpoint(
+      await store.saveEventsAndCheckpoint(
         protocol, chainId, poolAddress, events, toBlock, endBlock.hash
       );
       indexedEvents += events.length;
@@ -175,7 +175,7 @@ export async function runAaveIndexerPass(
     const caughtUp = lastCompleted >= safeHead;
     const pool = new Contract(poolAddress, AAVE_POOL_ABI, provider);
     const borrowers = caughtUp
-      ? store.listBorrowers(chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE)
+      ? await store.listBorrowers(chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE)
       : [];
     let snapshotsUpdated = 0;
     let accountReadFailures = 0;
@@ -188,7 +188,7 @@ export async function runAaveIndexerPass(
           const collateral = account[0];
           const debt = account[1];
           const healthFactor = account[5];
-          store.saveSnapshot({
+          await store.saveSnapshot({
             chainId,
             poolAddress,
             address: borrower.address,
@@ -207,7 +207,7 @@ export async function runAaveIndexerPass(
       snapshotsUpdated += results.filter(Boolean).length;
     }
 
-    const stats = store.getStats(chainId, poolAddress);
+    const stats = await store.getStats(chainId, poolAddress);
     return {
       poolAddress,
       fromBlock: nextBlock,
