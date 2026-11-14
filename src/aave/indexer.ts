@@ -28,6 +28,7 @@ export interface IndexerPassResult {
   snapshotsUpdated: number;
   accountReadFailures: number;
   reorgDetected: boolean;
+  caughtUp: boolean;
   database: {
     eventCount: number;
     borrowerCount: number;
@@ -169,10 +170,13 @@ export async function runAaveIndexerPass(
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
 
+    // Avoid spending RPC quota refreshing account data for every tiny historical batch.
+    // Snapshots are refreshed after the event index catches up to the confirmed chain head.
+    const caughtUp = lastCompleted >= safeHead;
     const pool = new Contract(poolAddress, AAVE_POOL_ABI, provider);
-    const borrowers = store.listBorrowers(
-      chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE
-    );
+    const borrowers = caughtUp
+      ? store.listBorrowers(chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE)
+      : [];
     let snapshotsUpdated = 0;
     let accountReadFailures = 0;
 
@@ -213,6 +217,7 @@ export async function runAaveIndexerPass(
       snapshotsUpdated,
       accountReadFailures,
       reorgDetected,
+      caughtUp,
       database: {
         eventCount: stats.eventCount,
         borrowerCount: stats.borrowerCount,
