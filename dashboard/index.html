@@ -47,15 +47,8 @@
     <section class="middle">
       <article class="panel" id="activity">
         <div class="paneltitle"><h2>Borrow activity</h2><span id="eventCountLabel">Waiting for indexed events</span></div>
-        <svg class="chart" viewBox="0 0 680 190" role="img" aria-label="Illustrative borrow activity line chart">
-          <defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#55d6c2" stop-opacity=".25"/><stop offset="1" stop-color="#55d6c2" stop-opacity="0"/></linearGradient></defs>
-          <g stroke="#26344d" stroke-width="1"><path d="M42 25H660M42 65H660M42 105H660M42 145H660"/></g>
-          <g fill="#71819b" font-size="10"><text x="4" y="28">120</text><text x="10" y="68">80</text><text x="10" y="108">40</text><text x="16" y="148">0</text></g>
-          <path d="M42 132 L130 105 L218 116 L306 72 L394 88 L482 47 L570 66 L660 30 L660 150 L42 150Z" fill="url(#fill)"/>
-          <path d="M42 132 L130 105 L218 116 L306 72 L394 88 L482 47 L570 66 L660 30" fill="none" stroke="#55d6c2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          <g fill="#55d6c2" stroke="#0e1728" stroke-width="3"><circle cx="42" cy="132" r="5"/><circle cx="130" cy="105" r="5"/><circle cx="218" cy="116" r="5"/><circle cx="306" cy="72" r="5"/><circle cx="394" cy="88" r="5"/><circle cx="482" cy="47" r="5"/><circle cx="570" cy="66" r="5"/><circle cx="660" cy="30" r="5"/></g>
-        </svg>
-        <div class="chartlabels"><span>Nov 08</span><span>Nov 09</span><span>Nov 10</span><span>Nov 11</span><span>Nov 12</span><span>Nov 13</span><span>Nov 14</span></div>
+        <div id="eventSummary" style="height:190px;display:grid;place-items:center;text-align:center;color:var(--muted);font-size:12px">Borrow-event totals will appear here after the indexer starts.</div>
+     <div class="chartlabels"><span>Nov 08</span><span>Nov 09</span><span>Nov 10</span><span>Nov 11</span><span>Nov 12</span><span>Nov 13</span><span>Nov 14</span></div>
       </article>
       <article class="panel" id="risk">
         <div class="paneltitle"><h2>Risk distribution</h2><span>Latest indexed snapshots</span></div>
@@ -103,6 +96,8 @@
       document.getElementById('riskHigh').textContent=high;
       document.getElementById('riskWatch').textContent=watch;
       document.getElementById('eventCountLabel').textContent=status.counts.borrowEvents.toLocaleString()+' indexed Borrow events';
+      document.getElementById('eventSummary').textContent=status.counts.borrowEvents.toLocaleString()+' Borrow events stored · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started');
+      document.querySelectorAll('#risk .bar i').forEach((bar,i)=>{const values=[critical,high,watch],total=Math.max(1,critical+high+watch);bar.style.width=(values[i]/total*100)+'%'});
       document.getElementById('footerStatus').textContent='API online · '+(status.rpcConfigured?'RPC configured':'RPC not configured')+' · Read-only · No transactions submitted';
       const body=document.getElementById('borrowerRows');
       body.innerHTML=rows.filter(x=>x.healthFactorWad!==null).map(x=>{
