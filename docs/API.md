@@ -22,6 +22,10 @@ All endpoints are read-only. The service does not accept wallet credentials, sig
 | GET | `/api/v1/events?limit=50` | Recent indexed Borrow events |
 | GET | `/api/v1/estimate?... ` | Caller-input liquidation profitability screening |
 
+## Request limits and response security
+
+The API applies best-effort, in-memory per-client request limits: 2 requests/minute for subgraph discovery, 30 requests/minute for RPC/AaveKit-heavy scan, quote, and position routes, and 300 requests/minute for other routes. A limited request returns HTTP 429 with a `Retry-After` header. Limits reset when the process restarts and are local to one instance; they are not a substitute for authentication or a distributed gateway limit. The JSON and dashboard responses also include baseline browser security headers.
+
 ## Scan semantics
 
 The scanner discovers addresses from recent Aave V3 Pool `Borrow` events, then reads current account data. It is not an exhaustive market-wide borrower directory: borrowers with no Borrow event in the selected block window are not discovered. The scan is bounded to 1–500 blocks and internally splits log queries into small sequential ranges to respect provider limits. Results are cached briefly.
