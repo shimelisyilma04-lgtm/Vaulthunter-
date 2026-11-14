@@ -11,12 +11,23 @@
 
 ## First-time setup
 
+### Windows (zero-cost local run)
+
+1. Install Node.js 20 LTS or newer from [nodejs.org](https://nodejs.org/) if it is not already installed.
+2. Download or clone this repository to your Windows computer and open PowerShell in the repository folder.
+3. Run one pass with `powershell -ExecutionPolicy Bypass -File .\\scripts\\start-indexer.ps1`. The script installs dependencies and asks for your Ethereum Mainnet RPC HTTPS endpoint only if `.env` does not already contain it.
+4. To keep indexing while the computer is on, run `powershell -ExecutionPolicy Bypass -File .\\scripts\\start-indexer.ps1 -Continuous`. Keep the computer awake and connected to the internet. Press Ctrl+C to stop safely; the SQLite checkpoint is saved after each batch, so you can restart later.
+
+The RPC endpoint is saved in the local `.env` file, which is ignored by Git. Never paste it into a GitHub issue, commit it, or send it in chat.
+
+### Other operating systems
+
 1. Configure `ETHEREUM_RPC_URL` with an Ethereum Mainnet endpoint.
 2. The default `AAVE_INDEXER_START_BLOCK=16291127` is the documented Ethereum Aave V3 Pool deployment/start block. This is the historical scan start, not a recent transaction block.
 3. Set `VAULTHUNTER_DB_PATH` to a persistent local path, for example `./data/vaulthunter.sqlite`.
 4. Run `npm run aave:index:once` to verify one pass, or `npm run aave:index` to keep indexing.
 
-The first backfill begins at block 16,291,127 and advances in small sequential ranges. A full historical backfill can take a long time on free RPC plans; do not increase request concurrency to bypass provider limits. Start with the one-shot command and inspect its logs before leaving the continuous process running.
+The first backfill begins at block 16,291,127 and advances in small sequential ranges of at most 10 blocks. During backfill, the continuous runner proceeds to the next batch without the normal polling delay and defers account snapshots until it reaches the confirmed chain head. After catching up, it refreshes a rotating batch of borrowers and waits for the configured poll interval. A full historical backfill can still take many hours or days on free RPC plans; do not increase request concurrency to bypass provider limits. Use the one-shot command to test connectivity, then use the continuous runner for the backfill.
 
 ## Configuration
 
