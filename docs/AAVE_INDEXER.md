@@ -3,7 +3,7 @@
 ## What it does
 
 - Indexes Aave V3 Ethereum Pool `Borrow` events incrementally.
-- Persists events, distinct borrowers, and block checkpoints in SQLite.
+- Persists events, distinct borrowers, and block checkpoints in SQLite locally or PostgreSQL when `DATABASE_URL` is configured.
 - Uses a configurable confirmation depth and verifies the checkpoint block hash before continuing.
 - Rewinds the configured confirmation window and rebuilds borrower aggregates when a checkpoint hash changes.
 - Refreshes each known borrower's current account data and flags health factors below 1 with nonzero debt.
@@ -36,12 +36,13 @@ The first backfill begins at block 16,291,127 and advances in small sequential r
 - `AAVE_INDEXER_BATCH_BLOCKS`: blocks per `eth_getLogs` request (default 10, maximum 10).
 - `AAVE_INDEXER_POLL_INTERVAL_MS`: continuous polling interval (default 30 seconds).
 - `AAVE_INDEXER_SNAPSHOT_BATCH_SIZE`: maximum borrowers refreshed per pass (default 100); oldest snapshots are refreshed first so large markets rotate fairly.
-- `VAULTHUNTER_DB_PATH`: SQLite database path (default `./data/vaulthunter.sqlite`).
+- `DATABASE_URL`: optional PostgreSQL connection URL. Use this for hosted Render deployments so checkpoints and event history survive restarts.
+- `VAULTHUNTER_DB_PATH`: local SQLite database path (default `./data/vaulthunter.sqlite`); used when `DATABASE_URL` is unset.
 
 ## Reorg and durability notes
 
 Each committed batch writes decoded events and its checkpoint in one SQLite transaction. The stored checkpoint block hash is checked before every pass. If it no longer matches the canonical chain, events after the confirmation-depth rewind point are deleted and borrower aggregates are rebuilt.
 
-Use a persistent disk/volume for `VAULTHUNTER_DB_PATH` in any hosted deployment. Ephemeral container filesystems lose the index when a service restarts or redeploys. Back up the database file and its SQLite WAL consistently; stop the service or use SQLite's backup API for a clean backup.
+For hosted Render Free, configure a managed PostgreSQL database and set `DATABASE_URL` in the web service environment. Render Free web services lose local SQLite files on restarts/redeploys, and free Render Postgres expires after 30 days, so use an external provider with persistent free-tier storage (for example Neon) for ongoing development. Keep the connection string private. Local SQLite remains suitable for development on a persistent computer.
 
 This is an event index, not a guarantee that every account is currently eligible. Health snapshots are time-sensitive and must be refreshed and revalidated at the same block as any future transaction simulation.
