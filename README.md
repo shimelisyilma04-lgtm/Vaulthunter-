@@ -10,7 +10,10 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Conservative Aave V3 liquidation profitability screening calculator with close-factor, collateral-cap, protocol-fee, flash-loan, swap, slippage, gas, and safety-buffer inputs.
 - SQLite-backed incremental Aave V3 historical Borrow-event indexer.
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
-- Current health-factor snapshots for indexed borrowers.
+- Current health-factor snapshots and a ranked read-only risk feed for indexed borrowers.
+- Optional Aave-maintained Ethereum V3 subgraph discovery adapter (requires a The Graph API key; bounded recent history, not exhaustive).
+- Read-only Uniswap V3 QuoterV2 single-pool quote endpoint at a pinned block.
+- Explicit simulation-readiness endpoint; full liquidation transaction simulation is not yet configured or implemented.
 - No wallet, private key, transaction signing, or transaction submission.
 
 ## Dashboard preview
@@ -45,11 +48,15 @@ The deployed service exposes:
 - `GET /api/v1/market` — current Aave V3 Ethereum market and reserve data, including liquidation bonuses, liquidity, oracle addresses, and flash-loan flags (AaveKit indexed data, not block-pinned).
 - `GET /api/v1/positions?user=0x...` — enrich a known borrower with AaveKit supply/borrow positions and account state (indexed data, not pinned to the RPC scan block).
 - `GET /api/v1/borrowers?limit=200` — stored borrower snapshots.
+- `GET /api/v1/risk?limit=100` — lowest-health-factor-first risk feed with snapshot age/freshness.
+- `GET /api/v1/discovery/subgraph` — up to 1,000 recent Aave V3 Borrow events, deduplicated to borrower addresses; requires `AAVE_SUBGRAPH_API_KEY` in Render environment.
+- `GET /api/v1/quote/uniswap-v3?tokenIn=0x...&tokenOut=0x...&amountIn=1000000&fee=500` — single-pool Uniswap V3 quote; amount is in token base units.
+- `GET /api/v1/simulation/status` — states whether full transaction simulation is configured (currently no).
 - `GET /api/v1/candidates?limit=100` — stored snapshots currently flagged below HF 1.
 - `GET /api/v1/events?limit=50` — recent indexed Borrow events.
 - `GET /api/v1/estimate?... ` — caller-input Aave V3 liquidation screening estimate. Required query parameters: `healthFactor`, `totalDebtUsd`, `debtReserveUsd`, `collateralReserveUsd`, `collateralAvailableUsd`, `liquidationBonusBps`, and `gasCostUsd`. Optional: `flashLoanFeeBps`, `swapFeeBps`, `slippageBps`, `protocolFeeBps`, and `safetyBufferBps`.
 
-The market endpoint now retrieves current Aave reserve metadata and market liquidity from AaveKit. The estimate endpoint still does not certify same-block prices, DEX quotes, flash-loan route availability, or gas prices. Supply fresh same-block, pair-specific inputs from a trusted market adapter. A positive estimate is only a screening signal; pinned-block revalidation and exact transaction simulation are mandatory before any future execution. See [API and bot integration](docs/API.md).
+The market endpoint retrieves current Aave reserve metadata and market liquidity from AaveKit. The Uniswap quote endpoint uses the official Ethereum QuoterV2 contract and is a single-pool quote only. The Aave subgraph adapter is optional and disabled until a Graph API key is configured. It reads a bounded recent slice and does not claim exhaustive historical coverage. The estimate endpoint still does not certify same-block Aave state, flash-loan route availability, or gas prices. Supply fresh same-block, pair-specific inputs from a trusted market adapter. A positive estimate is only a screening signal; pinned-block revalidation and exact transaction simulation are mandatory before any future execution. The full liquidation simulation runner is not implemented yet; /api/v1/simulation/status reports this explicitly. See [API and bot integration](docs/API.md).
 
 ## Other commands
 
