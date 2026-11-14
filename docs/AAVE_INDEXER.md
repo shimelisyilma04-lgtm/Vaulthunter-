@@ -11,16 +11,16 @@
 
 ## First-time setup
 
-1. Configure `ETHEREUM_RPC_URL`.
-2. Set `AAVE_INDEXER_START_BLOCK` to the Ethereum deployment block of the Aave V3 Pool proxy (the official Pool address is resolved dynamically from the PoolAddressesProvider).
+1. Configure `ETHEREUM_RPC_URL` with an Ethereum Mainnet endpoint.
+2. The default `AAVE_INDEXER_START_BLOCK=16291127` is the documented Ethereum Aave V3 Pool deployment/start block. This is the historical scan start, not a recent transaction block.
 3. Set `VAULTHUNTER_DB_PATH` to a persistent local path, for example `./data/vaulthunter.sqlite`.
 4. Run `npm run aave:index:once` to verify one pass, or `npm run aave:index` to keep indexing.
 
-The first backfill begins at the configured start block and advances in small block ranges. A full historical backfill can take a long time on free RPC plans; do not increase request concurrency to bypass provider limits.
+The first backfill begins at block 16,291,127 and advances in small sequential ranges. A full historical backfill can take a long time on free RPC plans; do not increase request concurrency to bypass provider limits. Start with the one-shot command and inspect its logs before leaving the continuous process running.
 
 ## Configuration
 
-- `AAVE_INDEXER_START_BLOCK`: required only when creating a fresh index; must be a valid block at or before the Pool's first Borrow event.
+- `AAVE_INDEXER_START_BLOCK`: default 16291127 for a fresh full-history index; set a later block only when intentionally creating a partial history.
 - `AAVE_INDEXER_CONFIRMATIONS`: confirmation depth (default 12).
 - `AAVE_INDEXER_BATCH_BLOCKS`: blocks per `eth_getLogs` request (default 10, maximum 10).
 - `AAVE_INDEXER_POLL_INTERVAL_MS`: continuous polling interval (default 30 seconds).
