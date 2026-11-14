@@ -275,6 +275,9 @@ export class SqliteAaveStore {
 }
 
 
+// Backwards-compatible synchronous SQLite store for existing local tests and tools.
+export class AaveStore extends SqliteAaveStore {}
+
 export interface AaveStorePort {
   getCheckpoint(protocol: string, chainId: number, poolAddress: string): Promise<IndexerCheckpoint | null>;
   saveEventsAndCheckpoint(protocol: string, chainId: number, poolAddress: string, events: StoredBorrowEvent[], lastBlock: number, lastBlockHash: string): Promise<void>;
