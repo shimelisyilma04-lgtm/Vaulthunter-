@@ -33,8 +33,8 @@ export class AaveStore implements AaveStorePort {
     if(this.postgres)return this.postgres.rollbackTo(protocol,chainId,poolAddress,blockNumber,blockHash);
     this.sqlite!.rollbackTo(protocol,chainId,poolAddress,blockNumber,blockHash);
   }
-  async listBorrowers(chainId:number,poolAddress:string,limit=100):Promise<BorrowerRecord[]>{
-    return this.postgres ? this.postgres.listBorrowers(chainId,poolAddress,limit) : this.sqlite!.listBorrowers(chainId,poolAddress,limit);
+  async listBorrowers(chainId:number,poolAddress:string,limit=100,offset=0):Promise<BorrowerRecord[]>{
+    return this.postgres ? this.postgres.listBorrowers(chainId,poolAddress,limit,offset) : this.sqlite!.listBorrowers(chainId,poolAddress,limit,offset);
   }
   async upsertDiscoveredBorrowers(chainId:number,poolAddress:string,addresses:string[]):Promise<void>{
     if(this.postgres)return this.postgres.upsertDiscoveredBorrowers(chainId,poolAddress,addresses);
