@@ -74,34 +74,56 @@
   const filter=document.getElementById('filter');
   filter.addEventListener('input',()=>{const q=filter.value.toLowerCase();document.querySelectorAll('#borrowerRows tr').forEach(row=>{row.hidden=!row.textContent.toLowerCase().includes(q)})});
   const fmtUsd=(base)=>base==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(base)/1e8);
-  const shortAddress=(a)=>a? a.slice(0,8)+'…'+a.slice(-6):'—';
+  const shortAddress=(a)=>a?a.slice(0,8)+'…'+a.slice(-6):'—';
   const health=(wad)=>wad==null?null:Number(wad)/1e18;
   const risk=(hf)=>hf===null?'Unknown':hf<1?'Critical':hf<1.05?'High':hf<1.1?'Watch':'Lower';
   const esc=(s)=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   async function refresh(){
     try{
-      const [statusRes,borrowersRes,scanRes]=await Promise.all([fetch('/api/v1/status'),fetch('/api/v1/borrowers?limit=200'),fetch('/api/v1/scan')]);
+      const [statusRes,borrowersRes,scanRes]=await Promise.all([
+        fetch('/api/v1/status'),
+        fetch('/api/v1/borrowers?limit=200'),
+        fetch('/api/v1/scan')
+      ]);
       if(!statusRes.ok||!borrowersRes.ok)throw new Error('API request failed');
-      const status=await statusRes.json(), payload=await borrowersRes.json(), rows=payload.data||[];
+      const status=await statusRes.json();
+      const payload=await borrowersRes.json();
+      const rows=payload.data||[];
+      const liveScan=scanRes.ok?await scanRes.json():null;
+      const liveCandidates=liveScan?.candidates||[];
       const snap=rows.filter(x=>x.healthFactorWad!==null);
-      const displayRows=liveCandidates.length?liveCandidates.map(x=>({address:x.borrower,healthFactorWad:x.healthFactorWad,totalCollateralBase:x.totalCollateralBase,totalDebtBase:x.totalDebtBase})):snap;\n      const hfs=(liveCandidates.length?liveCandidates.map(x=>Number(x.healthFactorWad)/1e18):snap.map(x=>health(x.healthFactorWad))).filter((x)=>x!==null);
-      const critical=hfs.filter(x=>x<1).length, high=hfs.filter(x=>x>=1&&x<1.05).length, watch=hfs.filter(x=>x>=1.05&&x<1.1).length;
+      const displayRows=liveCandidates.length?liveCandidates.map(x=>({
+        address:x.borrower,healthFactorWad:x.healthFactorWad,
+        totalCollateralBase:x.totalCollateralBase,totalDebtBase:x.totalDebtBase
+      })):snap;
+      const hfs=(liveCandidates.length
+        ?liveCandidates.map(x=>Number(x.healthFactorWad)/1e18)
+        :snap.map(x=>health(x.healthFactorWad))).filter(x=>x!==null);
+      const critical=hfs.filter(x=>x<1).length;
+      const high=hfs.filter(x=>x>=1&&x<1.05).length;
+      const watch=hfs.filter(x=>x>=1.05&&x<1.1).length;
       document.getElementById('apiBadge').textContent=liveScan?'LIVE RPC SCAN · READ ONLY':status.rpcConfigured?'RPC SET · SCAN UNAVAILABLE':'API ONLINE · RPC NOT SET';
-      document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(status.rpcConfigured?'Connected to VaultHunter API.':'API is online; Ethereum RPC is not configured.')+'</b> '+(snap.length?(liveScan?'Live RPC scan completed at block '+liveScan.toBlock+'.':'Showing indexed Aave borrower snapshots.'):'No borrower snapshots have been indexed yet. Configure the RPC before expecting live data.')+' This is monitoring data, not a promise of liquidation profit.</div>';
+      document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(liveScan?'Live Ethereum scan completed.':status.rpcConfigured?'Ethereum RPC is configured, but the scan did not return.':'API is online; Ethereum RPC is not configured.')+'</b> '+(liveScan?'Results cover only recent Borrow events from blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':snap.length?'Showing indexed Aave borrower snapshots.':'No live borrower data is available yet.')+' This is monitoring data, not a promise of liquidation profit.</div>';
       document.getElementById('metricBorrowers').textContent=(liveScan?liveScan.borrowersDiscovered:status.counts.knownBorrowers).toLocaleString();
       document.getElementById('metricAtRisk').textContent=(liveScan?liveScan.accountsChecked:snap.length).toLocaleString();
       document.getElementById('metricLiquidatable').textContent=(liveScan?liveCandidates.length:critical).toLocaleString();
-      document.getElementById('metricBlock').textContent=status.checkpoint?.lastBlock?.toLocaleString()||'—';
+      document.getElementById('metricBlock').textContent=liveScan?liveScan.toBlock.toLocaleString():(status.checkpoint?.lastBlock?.toLocaleString()||'—');
       document.getElementById('riskCritical').textContent=critical;
       document.getElementById('riskHigh').textContent=high;
       document.getElementById('riskWatch').textContent=watch;
       document.getElementById('eventCountLabel').textContent=liveScan?'Live RPC scan · '+liveScan.fromBlock+'–'+liveScan.toBlock:status.counts.borrowEvents.toLocaleString()+' indexed Borrow events';
-      document.getElementById('eventSummary').textContent=liveScan?(liveScan.borrowersDiscovered+' borrowers discovered in '+(liveScan.toBlock-liveScan.fromBlock+1)+' recent blocks; '+liveCandidates.length+' currently below HF 1.'):(status.counts.borrowEvents.toLocaleString()+' Borrow events stored · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started'));
-      document.querySelectorAll('#risk .bar i').forEach((bar,i)=>{const values=[critical,high,watch],total=Math.max(1,critical+high+watch);bar.style.width=(values[i]/total*100)+'%'});
+      document.getElementById('eventSummary').textContent=liveScan
+        ?liveScan.borrowersDiscovered+' borrowers discovered in '+(liveScan.toBlock-liveScan.fromBlock+1)+' recent blocks; '+liveCandidates.length+' currently below HF 1.'
+        :status.counts.borrowEvents.toLocaleString()+' Borrow events stored · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started');
+      document.querySelectorAll('#risk .bar i').forEach((bar,i)=>{
+        const values=[critical,high,watch],total=Math.max(1,critical+high+watch);
+        bar.style.width=(values[i]/total*100)+'%';
+      });
       document.getElementById('footerStatus').textContent='API online · '+(status.rpcConfigured?'RPC configured':'RPC not configured')+' · Read-only · No transactions submitted';
       const body=document.getElementById('borrowerRows');
-      body.innerHTML=rows.filter(x=>x.healthFactorWad!==null).map(x=>{
-        const hf=Number(x.healthFactorWad)/1e18, level=risk(hf), cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
+      body.innerHTML=displayRows.map(x=>{
+        const hf=Number(x.healthFactorWad)/1e18;
+        const level=risk(hf),cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
         return '<tr><td class="address" title="'+esc(x.address)+'">'+esc(shortAddress(x.address))+'</td><td>'+hf.toFixed(4)+'</td><td>'+fmtUsd(x.totalCollateralBase)+'</td><td>'+fmtUsd(x.totalDebtBase)+'</td><td><span class="pill '+cls+'">'+level+'</span></td></tr>';
       }).join('')||'<tr><td colspan="5">No qualifying accounts in the recent scan window. This does not mean no risky accounts exist elsewhere on Aave.</td></tr>';
       filter.dispatchEvent(new Event('input'));
@@ -111,7 +133,7 @@
       document.getElementById('footerStatus').textContent='API unavailable · Read-only mode';
     }
   }
-  refresh();setInterval(refresh,30000);
+  refresh();setInterval(refresh,60000);
 </script>
 </body>
 </html>
