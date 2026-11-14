@@ -1,5 +1,5 @@
 import pino from "pino";
-import { config } from "./config.js";
+import { config, rpcConfigError } from "./config.js";
 import { AaveStore } from "./aave/store.js";
 import { runAaveIndexerPass } from "./aave/indexer.js";
 import { startHttpServer } from "./api/server.js";
@@ -7,6 +7,10 @@ import { startHttpServer } from "./api/server.js";
 const logger = pino({ level: config.LOG_LEVEL });
 const store = new AaveStore(config.VAULTHUNTER_DB_PATH);
 const server = startHttpServer(store);
+
+if (rpcConfigError) {
+  logger.error({ message: rpcConfigError }, "Ethereum RPC configuration is invalid; API remains online without live scans");
+}
 
 let stopping = false;
 
