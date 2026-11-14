@@ -3,10 +3,13 @@ import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { AaveStore } from "../aave/store.js";
 import { config } from "../config.js";
+import { scanAaveBorrowers } from "../aave/scanner.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const dashboardPath = join(process.cwd(), "dashboard", "index.html");
+let scanCache: { createdAt: number; data: Awaited<ReturnType<typeof scanAaveBorrowers>> } | null = null;
+let scanInFlight: Promise<Awaited<ReturnType<typeof scanAaveBorrowers>>> | null = null;
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
@@ -55,7 +58,7 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           poolAddress: POOL,
           mode: "read-only",
           rpcConfigured: Boolean(config.ETHEREUM_RPC_URL),
-          indexerEnabled: Boolean(config.ETHEREUM_RPC_URL),
+          indexerEnabled: config.AAVE_INDEXER_ENABLED,
           checkpoint: stats.checkpoint,
           counts: {
             borrowEvents: stats.eventCount,
@@ -64,6 +67,27 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           },
           warning: "Liquidation eligibility is a health-factor snapshot, not proof of a profitable or executable liquidation."
         });
+        return;
+      }
+      if (url.pathname === "/api/v1/scan") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: "Set ETHEREUM_RPC_URL in the service environment." });
+          return;
+        }
+        if (scanCache && Date.now() - scanCache.createdAt < 60000) {
+          send(res, 200, { ...scanCache.data, cached: true, source: "live-ethereum-rpc" });
+          return;
+        }
+        if (!scanInFlight) {
+          scanInFlight = scanAaveBorrowers(config.ETHEREUM_RPC_URL)
+            .then((data) => {
+              scanCache = { createdAt: Date.now(), data };
+              return data;
+            })
+            .finally(() => { scanInFlight = null; });
+        }
+        const data = await scanInFlight;
+        send(res, 200, { ...data, cached: false, source: "live-ethereum-rpc" });
         return;
       }
       if (url.pathname === "/api/v1/borrowers" || url.pathname === "/api/v1/candidates") {
