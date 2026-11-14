@@ -70,9 +70,6 @@
 <script>
   const filter=document.getElementById('filter');
   filter.addEventListener('input',()=>{const q=filter.value.toLowerCase();document.querySelectorAll('#borrowerRows tr').forEach(row=>{row.hidden=!row.textContent.toLowerCase().includes(q)})});
-<script>
-  const filter=document.getElementById('filter');
-  filter.addEventListener('input',()=>{const q=filter.value.toLowerCase();document.querySelectorAll('#borrowerRows tr').forEach(row=>{row.hidden=!row.textContent.toLowerCase().includes(q)})});
   const fmtUsd=(base)=>base==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(base)/1e8);
   const shortAddress=(a)=>a?a.slice(0,8)+'…'+a.slice(-6):'—';
   const health=(wad)=>wad==null?null:Number(wad)/1e18;
@@ -99,9 +96,9 @@
       const hfs=(liveCandidates.length
         ?liveCandidates.map(x=>Number(x.healthFactorWad)/1e18)
         :snap.map(x=>health(x.healthFactorWad))).filter(x=>x!==null);
-      const critical=hfs.filter(x=>x<1).length;
-      const high=hfs.filter(x=>x>=1&&x<1.05).length;
-      const watch=hfs.filter(x=>x>=1.05&&x<1.1).length;
+      const critical=liveScan?liveCandidates.length:hfs.filter(x=>x<1).length;
+      const high=liveScan?0:hfs.filter(x=>x>=1&&x<1.05).length;
+      const watch=liveScan?0:hfs.filter(x=>x>=1.05&&x<1.1).length;
       document.getElementById('apiBadge').textContent=liveScan?'LIVE RPC SCAN · READ ONLY':status.rpcConfigured?'RPC SET · SCAN UNAVAILABLE':'API ONLINE · RPC NOT SET';
       document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(liveScan?'Live Ethereum scan completed.':status.rpcConfigured?'Ethereum RPC is configured, but the scan did not return.':'API is online; Ethereum RPC is not configured.')+'</b> '+(liveScan?'Results cover only recent Borrow events from blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':snap.length?'Showing indexed Aave borrower snapshots.':'No live borrower data is available yet.')+' This is monitoring data, not a promise of liquidation profit.</div>';
       document.getElementById('metricBorrowers').textContent=(liveScan?liveScan.borrowersDiscovered:status.counts.knownBorrowers).toLocaleString();
@@ -123,7 +120,7 @@
       const body=document.getElementById('borrowerRows');
       body.innerHTML=displayRows.map(x=>{
         const hf=Number(x.healthFactorWad)/1e18;
-        const level=risk(hf),cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
+        const level=liveScan?'Critical':risk(hf),cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
         return '<tr><td class="address" title="'+esc(x.address)+'">'+esc(shortAddress(x.address))+'</td><td>'+hf.toFixed(4)+'</td><td>'+fmtUsd(x.totalCollateralBase)+'</td><td>'+fmtUsd(x.totalDebtBase)+'</td><td><span class="pill '+cls+'">'+level+'</span></td></tr>';
       }).join('')||'<tr><td colspan="5">No qualifying accounts in the recent scan window. This does not mean no risky accounts exist elsewhere on Aave.</td></tr>';
       filter.dispatchEvent(new Event('input'));
