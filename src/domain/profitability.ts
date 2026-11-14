@@ -68,7 +68,6 @@ export interface AaveV3Estimate {
 }
 
 const BPS = 10_000;
-const MIN_RESIDUAL_USD = 1_000;
 const FULL_CLOSE_HF = 0.95;
 const SMALL_POSITION_USD = 2_000;
 
@@ -109,6 +108,7 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
   const assumptions = [
     "USD values and reserve parameters are caller-supplied; no market quote is invented.",
     "All inputs must refer to the same recent block and the selected Aave V3 Ethereum market.",
+    "The close factor applies to the selected debt-reserve position, not the borrower's aggregate portfolio debt.",
     "Swap fee and slippage are applied to estimated collateral proceeds.",
     "Protocol fee is modelled against the liquidation bonus.",
     "Failed-transaction costs, MEV competition, and route-specific execution effects are excluded."
@@ -135,13 +135,11 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
     debtReserveUsd < SMALL_POSITION_USD ||
     collateralReserveUsd < SMALL_POSITION_USD;
   const closeFactorBps: 0 | 5000 | 10000 = fullClose ? 10_000 : 5_000;
-  const closeFactorCap = totalDebtUsd * closeFactorBps / BPS;
-  const residualDebtCap = fullClose ? totalDebtUsd : Math.max(0, totalDebtUsd - MIN_RESIDUAL_USD);
-  const residualCollateralCap = fullClose
-    ? collateralAvailableUsd
-    : Math.max(0, collateralAvailableUsd - MIN_RESIDUAL_USD);
-  const collateralCap = residualCollateralCap / (1 + bonusBps / BPS);
-  const maxRepayUsd = Math.max(0, Math.min(closeFactorCap, residualDebtCap, collateralCap));
+  const closeFactorCap = debtReserveUsd * closeFactorBps / BPS;
+  // The selected collateral balance, not an invented minimum residual, caps
+  // repayment after applying the reserve liquidation bonus.
+  const collateralCap = collateralAvailableUsd / (1 + bonusBps / BPS);
+  const maxRepayUsd = Math.max(0, Math.min(closeFactorCap, collateralCap));
   const grossBonusUsd = maxRepayUsd * bonusBps / BPS;
   const collateralSeizedUsd = maxRepayUsd + grossBonusUsd;
   const protocolFeeUsd = grossBonusUsd * protocolFeeBps / BPS;
