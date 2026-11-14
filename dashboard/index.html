@@ -147,7 +147,7 @@
         const hf=Number(x.healthFactorWad)/1e18;
         const level=liveScan?'Critical':risk(hf),cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
         return '<tr><td class="address" title="'+esc(x.address)+'">'+esc(shortAddress(x.address))+'</td><td>'+hf.toFixed(4)+'</td><td>'+fmtUsd(x.totalCollateralBase)+'</td><td>'+fmtUsd(x.totalDebtBase)+'</td><td><span class="pill '+cls+'">'+level+'</span></td><td><button class="details-button" data-user="'+esc(x.address)+'" type="button">View positions</button></td></tr>';
-      }).join('')||'<tr><td colspan="5">No qualifying accounts in the recent scan window. This does not mean no risky accounts exist elsewhere on Aave.</td></tr>';
+      }).join('')||'<tr><td colspan="6">No qualifying accounts in the recent scan window. This does not mean no risky accounts exist elsewhere on Aave.</td></tr>';
       filter.dispatchEvent(new Event('input'));
     }catch(e){
       document.getElementById('apiBadge').textContent='API UNAVAILABLE';
