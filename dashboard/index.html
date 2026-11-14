@@ -41,7 +41,7 @@
     <section class="cards">
       <article class="card"><div class="cardhead">Borrowers indexed <span class="cardicon">◎</span></div><div class="metric" id="metricBorrowers">—</div><div class="hint">Borrowers in local index</div></article>
       <article class="card"><div class="cardhead">At-risk accounts <span class="cardicon">⌁</span></div><div class="metric" id="metricAtRisk">—</div><div class="hint">Latest snapshots with HF below 1.10</div></article>
-      <article class="card"><div class="cardhead">Liquidatable now <span class="cardicon">⚑</span></div><div class="metric" id="metricLiquidatable">—</div><div class="hint">HF below 1.00 · recheck on-chain</div></article>
+      <article class="card"><div class="cardhead">HF below 1 candidates <span class="cardicon">⚑</span></div><div class="metric" id="metricLiquidatable">—</div><div class="hint">HF below 1.00 · recheck on-chain</div></article>
       <article class="card"><div class="cardhead">Indexer checkpoint <span class="cardicon">◷</span></div><div class="metric" id="metricBlock" style="font-size:22px">—</div><div class="hint">Last confirmed indexed block</div></article>
     </section>
     <section class="middle">
@@ -80,30 +80,30 @@
   const esc=(s)=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   async function refresh(){
     try{
-      const [statusRes,borrowersRes]=await Promise.all([fetch('/api/v1/status'),fetch('/api/v1/borrowers?limit=200')]);
+      const [statusRes,borrowersRes,scanRes]=await Promise.all([fetch('/api/v1/status'),fetch('/api/v1/borrowers?limit=200'),fetch('/api/v1/scan')]);
       if(!statusRes.ok||!borrowersRes.ok)throw new Error('API request failed');
       const status=await statusRes.json(), payload=await borrowersRes.json(), rows=payload.data||[];
       const snap=rows.filter(x=>x.healthFactorWad!==null);
-      const hfs=snap.map(x=>health(x.healthFactorWad)).filter((x)=>x!==null);
+      const displayRows=liveCandidates.length?liveCandidates.map(x=>({address:x.borrower,healthFactorWad:x.healthFactorWad,totalCollateralBase:x.totalCollateralBase,totalDebtBase:x.totalDebtBase})):snap;\n      const hfs=(liveCandidates.length?liveCandidates.map(x=>Number(x.healthFactorWad)/1e18):snap.map(x=>health(x.healthFactorWad))).filter((x)=>x!==null);
       const critical=hfs.filter(x=>x<1).length, high=hfs.filter(x=>x>=1&&x<1.05).length, watch=hfs.filter(x=>x>=1.05&&x<1.1).length;
-      document.getElementById('apiBadge').textContent=status.rpcConfigured?'LIVE API · READ ONLY':'API ONLINE · RPC NOT SET';
-      document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(status.rpcConfigured?'Connected to VaultHunter API.':'API is online; Ethereum RPC is not configured.')+'</b> '+(snap.length?'Showing indexed Aave borrower snapshots.':'No borrower snapshots have been indexed yet. Configure the RPC and indexer before expecting live data.')+' This is monitoring data, not a promise of liquidation profit.</div>';
-      document.getElementById('metricBorrowers').textContent=status.counts.knownBorrowers.toLocaleString();
-      document.getElementById('metricAtRisk').textContent=hfs.filter(x=>x<1.1).length.toLocaleString();
-      document.getElementById('metricLiquidatable').textContent=critical.toLocaleString();
+      document.getElementById('apiBadge').textContent=liveScan?'LIVE RPC SCAN · READ ONLY':status.rpcConfigured?'RPC SET · SCAN UNAVAILABLE':'API ONLINE · RPC NOT SET';
+      document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(status.rpcConfigured?'Connected to VaultHunter API.':'API is online; Ethereum RPC is not configured.')+'</b> '+(snap.length?(liveScan?'Live RPC scan completed at block '+liveScan.toBlock+'.':'Showing indexed Aave borrower snapshots.'):'No borrower snapshots have been indexed yet. Configure the RPC before expecting live data.')+' This is monitoring data, not a promise of liquidation profit.</div>';
+      document.getElementById('metricBorrowers').textContent=(liveScan?liveScan.borrowersDiscovered:status.counts.knownBorrowers).toLocaleString();
+      document.getElementById('metricAtRisk').textContent=(liveScan?liveScan.accountsChecked:snap.length).toLocaleString();
+      document.getElementById('metricLiquidatable').textContent=(liveScan?liveCandidates.length:critical).toLocaleString();
       document.getElementById('metricBlock').textContent=status.checkpoint?.lastBlock?.toLocaleString()||'—';
       document.getElementById('riskCritical').textContent=critical;
       document.getElementById('riskHigh').textContent=high;
       document.getElementById('riskWatch').textContent=watch;
-      document.getElementById('eventCountLabel').textContent=status.counts.borrowEvents.toLocaleString()+' indexed Borrow events';
-      document.getElementById('eventSummary').textContent=status.counts.borrowEvents.toLocaleString()+' Borrow events stored · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started');
+      document.getElementById('eventCountLabel').textContent=liveScan?'Live RPC scan · '+liveScan.fromBlock+'–'+liveScan.toBlock:status.counts.borrowEvents.toLocaleString()+' indexed Borrow events';
+      document.getElementById('eventSummary').textContent=liveScan?(liveScan.borrowersDiscovered+' borrowers discovered in '+(liveScan.toBlock-liveScan.fromBlock+1)+' recent blocks; '+liveCandidates.length+' currently below HF 1.'):(status.counts.borrowEvents.toLocaleString()+' Borrow events stored · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started'));
       document.querySelectorAll('#risk .bar i').forEach((bar,i)=>{const values=[critical,high,watch],total=Math.max(1,critical+high+watch);bar.style.width=(values[i]/total*100)+'%'});
       document.getElementById('footerStatus').textContent='API online · '+(status.rpcConfigured?'RPC configured':'RPC not configured')+' · Read-only · No transactions submitted';
       const body=document.getElementById('borrowerRows');
       body.innerHTML=rows.filter(x=>x.healthFactorWad!==null).map(x=>{
         const hf=Number(x.healthFactorWad)/1e18, level=risk(hf), cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
         return '<tr><td class="address" title="'+esc(x.address)+'">'+esc(shortAddress(x.address))+'</td><td>'+hf.toFixed(4)+'</td><td>'+fmtUsd(x.totalCollateralBase)+'</td><td>'+fmtUsd(x.totalDebtBase)+'</td><td><span class="pill '+cls+'">'+level+'</span></td></tr>';
-      }).join('')||'<tr><td colspan="5">No health-factor snapshots yet. The indexer must run first.</td></tr>';
+      }).join('')||'<tr><td colspan="5">No qualifying accounts in the recent scan window. This does not mean no risky accounts exist elsewhere on Aave.</td></tr>';
       filter.dispatchEvent(new Event('input'));
     }catch(e){
       document.getElementById('apiBadge').textContent='API UNAVAILABLE';
