@@ -37,7 +37,7 @@ export interface BorrowerSnapshot {
   liquidationEligible: boolean;
 }
 
-export class AaveStore {
+export class SqliteAaveStore {
   private readonly db: Database.Database;
 
   constructor(path: string) {
@@ -272,4 +272,23 @@ export class AaveStore {
   close(): void {
     this.db.close();
   }
+}
+
+
+export interface AaveStorePort {
+  getCheckpoint(protocol: string, chainId: number, poolAddress: string): Promise<IndexerCheckpoint | null>;
+  saveEventsAndCheckpoint(protocol: string, chainId: number, poolAddress: string, events: StoredBorrowEvent[], lastBlock: number, lastBlockHash: string): Promise<void>;
+  rollbackTo(protocol: string, chainId: number, poolAddress: string, blockNumber: number, blockHash: string): Promise<void>;
+  listBorrowers(chainId: number, poolAddress: string, limit?: number): Promise<BorrowerRecord[]>;
+  saveSnapshot(snapshot: BorrowerSnapshot): Promise<void>;
+  getStats(chainId: number, poolAddress: string): Promise<{eventCount:number;borrowerCount:number;candidateCount:number;checkpoint:IndexerCheckpoint|null}>;
+  listBorrowerSnapshots(chainId: number, poolAddress: string, limit?: number, eligibleOnly?: boolean): Promise<Array<{
+    address:string;firstSeenBlock:number;lastSeenBlock:number;observedBlock:number|null;
+    totalCollateralBase:string|null;totalDebtBase:string|null;healthFactorWad:string|null;
+    liquidationEligible:boolean;snapshotUpdatedAt:string|null;
+  }>>;
+  listRecentBorrowEvents(chainId: number, poolAddress: string, limit?: number): Promise<Array<{
+    txHash:string;blockNumber:number;borrower:string;reserve:string;amount:string;blockTimestamp:number;
+  }>>;
+  close(): Promise<void>;
 }
