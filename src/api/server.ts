@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { AaveStore } from "../aave/store.js";
-import { config } from "../config.js";
+import { config, rpcConfigError } from "../config.js";
 import { scanAaveBorrowers } from "../aave/scanner.js";
 
 const CHAIN_ID = 1;
@@ -58,6 +58,7 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           poolAddress: POOL,
           mode: "read-only",
           rpcConfigured: Boolean(config.ETHEREUM_RPC_URL),
+          rpcConfigurationError: rpcConfigError,
           indexerEnabled: config.AAVE_INDEXER_ENABLED,
           checkpoint: stats.checkpoint,
           counts: {
@@ -71,7 +72,7 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
       }
       if (url.pathname === "/api/v1/scan") {
         if (!config.ETHEREUM_RPC_URL) {
-          send(res, 503, { error: "rpc_not_configured", message: "Set ETHEREUM_RPC_URL in the service environment." });
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Set ETHEREUM_RPC_URL to the full HTTPS endpoint from your Ethereum RPC provider." });
           return;
         }
         if (scanCache && Date.now() - scanCache.createdAt < 60000) {
