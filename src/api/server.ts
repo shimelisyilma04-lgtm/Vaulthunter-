@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
-import { AaveStore } from "../aave/store.js";
+import type { AaveStorePort } from "../aave/store.js";
 import { config, rpcConfigError } from "../config.js";
 import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
@@ -38,7 +38,7 @@ function lookbackBlocksFrom(url: URL): number {
     : config.AAVE_SCAN_LOOKBACK_BLOCKS;
 }
 
-export function startHttpServer(store: AaveStore): ReturnType<typeof createServer> {
+export function startHttpServer(store: AaveStorePort): ReturnType<typeof createServer> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
@@ -61,7 +61,7 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
         return;
       }
       if (url.pathname === "/api/v1/status") {
-        const stats = store.getStats(CHAIN_ID, POOL);
+        const stats = await store.getStats(CHAIN_ID, POOL);
         send(res, 200, {
           chain: "ethereum",
           chainId: CHAIN_ID,
@@ -167,14 +167,14 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
         return;
       }
       if (url.pathname === "/api/v1/borrowers" || url.pathname === "/api/v1/candidates") {
-        const rows = store.listBorrowerSnapshots(
+        const rows = await store.listBorrowerSnapshots(
           CHAIN_ID, POOL, limitFrom(url), url.pathname.endsWith("/candidates")
         );
         send(res, 200, { data: rows, count: rows.length, source: "local-indexer-database" });
         return;
       }
       if (url.pathname === "/api/v1/events") {
-        const rows = store.listRecentBorrowEvents(CHAIN_ID, POOL, limitFrom(url, 50, 200));
+        const rows = await store.listRecentBorrowEvents(CHAIN_ID, POOL, limitFrom(url, 50, 200));
         send(res, 200, { data: rows, count: rows.length, source: "local-indexer-database" });
         return;
       }
