@@ -10,7 +10,7 @@ const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const dashboardPath = join(process.cwd(), "dashboard", "index.html");
 let scanCache: { createdAt: number; lookbackBlocks: number; data: Awaited<ReturnType<typeof scanAaveBorrowers>> } | null = null;
-let scanInFlight: Promise<Awaited<ReturnType<typeof scanAaveBorrowers>>> | null = null;
+const scanInFlight = new Map<number, Promise<Awaited<ReturnType<typeof scanAaveBorrowers>>>>();
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
@@ -98,9 +98,9 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
             healthFactor: values.healthFactor!, totalDebtUsd: values.totalDebtUsd!,
             debtReserveUsd: values.debtReserveUsd!, collateralReserveUsd: values.collateralReserveUsd!,
             collateralAvailableUsd: values.collateralAvailableUsd!, liquidationBonusBps: values.liquidationBonusBps!,
-            gasCostUsd: values.gasCostUsd!, flashLoanFeeBps: values.flashLoanFeeBps,
-            swapFeeBps: values.swapFeeBps, slippageBps: values.slippageBps,
-            protocolFeeBps: values.protocolFeeBps, safetyBufferBps: values.safetyBufferBps
+            gasCostUsd: values.gasCostUsd!, flashLoanFeeBps: values.flashLoanFeeBps ?? 0,
+            swapFeeBps: values.swapFeeBps ?? 0, slippageBps: values.slippageBps ?? 0,
+            protocolFeeBps: values.protocolFeeBps ?? 0, safetyBufferBps: values.safetyBufferBps ?? 500
           });
           send(res, 200, { ...estimate, source: "caller-supplied-screening-inputs", executionEnabled: false });
         } catch (error) {
@@ -118,15 +118,17 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           send(res, 200, { ...scanCache.data, cached: true, source: "live-ethereum-rpc" });
           return;
         }
-        if (!scanInFlight) {
-          scanInFlight = scanAaveBorrowers(config.ETHEREUM_RPC_URL, lookbackBlocks)
+        let pending = scanInFlight.get(lookbackBlocks);
+        if (!pending) {
+          pending = scanAaveBorrowers(config.ETHEREUM_RPC_URL, lookbackBlocks)
             .then((data) => {
               scanCache = { createdAt: Date.now(), lookbackBlocks, data };
               return data;
             })
-            .finally(() => { scanInFlight = null; });
+            .finally(() => { scanInFlight.delete(lookbackBlocks); });
+          scanInFlight.set(lookbackBlocks, pending);
         }
-        const data = await scanInFlight;
+        const data = await pending;
         send(res, 200, { ...data, cached: false, source: "live-ethereum-rpc" });
         return;
       }
