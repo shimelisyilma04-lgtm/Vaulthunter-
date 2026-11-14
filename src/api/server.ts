@@ -32,7 +32,7 @@ function limitFrom(url: URL, fallback = 100, max = 500): number {
 function lookbackBlocksFrom(url: URL): number {
   const raw = Number(url.searchParams.get("lookbackBlocks") ?? config.AAVE_SCAN_LOOKBACK_BLOCKS);
   return Number.isInteger(raw)
-    ? Math.max(1, Math.min(10000, raw))
+    ? Math.max(1, Math.min(500, raw))
     : config.AAVE_SCAN_LOOKBACK_BLOCKS;
 }
 
