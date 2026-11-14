@@ -10,7 +10,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Conservative Aave V3 liquidation profitability screening calculator with close-factor, collateral-cap, protocol-fee, flash-loan, swap, slippage, gas, and safety-buffer inputs.
 - SQLite-backed incremental Aave V3 historical Borrow-event indexer.
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
-- Current health-factor snapshots and a ranked read-only risk feed for indexed borrowers.
+- Current health-factor snapshots and a ranked read-only risk feed for indexed borrowers. Snapshot refresh batches rotate through the full known-borrower set instead of repeatedly refreshing only the first page.
 - Optional Aave-maintained Ethereum V3 subgraph discovery adapter (requires a The Graph API key; bounded recent history, not exhaustive).
 - Read-only Uniswap V3 QuoterV2 single-pool quote endpoint at a pinned block.
 - Explicit simulation-readiness endpoint; full liquidation transaction simulation is not yet configured or implemented.
