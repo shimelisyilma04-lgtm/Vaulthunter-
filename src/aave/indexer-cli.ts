@@ -30,7 +30,11 @@ async function main(): Promise<void> {
       const result = await runAaveIndexerPass(config.ETHEREUM_RPC_URL, store);
       logger.info(result, "Aave historical indexing pass completed");
       if (once || stopping) break;
-      await new Promise((resolve) => setTimeout(resolve, config.AAVE_INDEXER_POLL_INTERVAL_MS));
+      // While historical blocks remain, continue immediately instead of idling 30 seconds
+      // after every 10-block batch. Poll at the configured interval only when caught up.
+      if (result.caughtUp) {
+        await new Promise((resolve) => setTimeout(resolve, config.AAVE_INDEXER_POLL_INTERVAL_MS));
+      }
     } while (!stopping);
   } finally {
     store.close();
