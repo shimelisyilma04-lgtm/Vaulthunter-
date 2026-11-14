@@ -7,6 +7,7 @@ import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
+import { quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -73,6 +74,10 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           indexerEnabled: config.AAVE_INDEXER_ENABLED,
           durableStorageConfigured: Boolean(config.DATABASE_URL),
           storageBackend: config.DATABASE_URL ? "postgresql" : "local-sqlite",
+          indexerCoverage: config.AAVE_INDEXER_ENABLED ? "recent-window-plus-live-tail" : "disabled",
+          historicalCoverageComplete: false,
+          dexQuoteProvider: config.ETHEREUM_RPC_URL ? "uniswap-v3-quoter-v2" : "not-configured",
+          forkSimulationConfigured: false,
           checkpoint: stats.checkpoint,
           counts: {
             borrowEvents: stats.eventCount,
@@ -142,6 +147,67 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         } catch (error) {
           send(res, 400, { error: "invalid_estimate_input", message: error instanceof Error ? error.message : "Invalid estimate input" });
         }
+        return;
+      }
+
+      if (url.pathname === "/api/v1/risk") {
+        const rows = await store.listBorrowerSnapshots(CHAIN_ID, POOL, limitFrom(url), false);
+        const now = Date.now();
+        const data = rows.map((row) => {
+          const healthFactor = row.healthFactorWad === null ? null : Number(row.healthFactorWad) / 1e18;
+          const snapshotAgeSeconds = row.snapshotUpdatedAt
+            ? Math.max(0, Math.floor((now - Date.parse(row.snapshotUpdatedAt)) / 1000))
+            : null;
+          const riskBand = healthFactor === null ? "unknown"
+            : healthFactor < 1 ? "liquidation-eligible-at-snapshot"
+            : healthFactor < 1.02 ? "critical"
+            : healthFactor < 1.05 ? "high"
+            : healthFactor < 1.1 ? "watch" : "lower";
+          return { ...row, healthFactor, riskBand, snapshotAgeSeconds,
+            snapshotFresh: snapshotAgeSeconds !== null && snapshotAgeSeconds <= 60 };
+        }).sort((a, b) => {
+          if (a.healthFactor === null) return 1;
+          if (b.healthFactor === null) return -1;
+          return a.healthFactor - b.healthFactor;
+        }).map((row, index) => ({ rank: index + 1, ...row }));
+        send(res, 200, {
+          data, count: data.length,
+          source: "on-chain-account-snapshots-from-indexed-borrowers",
+          ranking: "lowest-health-factor-first",
+          warning: "This ranks only borrowers already discovered by the configured event indexer. Historical market coverage is incomplete; stale snapshots must be refreshed at a pinned block. Risk bands are screening labels, not liquidation or profitability guarantees."
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/quote/uniswap-v3") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for an on-chain Uniswap quote." });
+          return;
+        }
+        const tokenIn = url.searchParams.get("tokenIn") ?? "";
+        const tokenOut = url.searchParams.get("tokenOut") ?? "";
+        const amountIn = url.searchParams.get("amountIn") ?? "";
+        const fee = Number(url.searchParams.get("fee"));
+        if (!/^0x[0-9a-fA-F]{40}$/.test(tokenIn) ||
+            !/^0x[0-9a-fA-F]{40}$/.test(tokenOut) ||
+            !/^\\d+$/.test(amountIn) || amountIn.length > 78 ||
+            !Number.isInteger(fee)) {
+          send(res, 400, { error: "invalid_quote_parameters", message: "Provide tokenIn, tokenOut, positive integer amountIn in token base units, and fee tier 100, 500, 3000, or 10000." });
+          return;
+        }
+        try {
+          const quote = await quoteUniswapV3ExactInput(config.ETHEREUM_RPC_URL, { tokenIn, tokenOut, amountIn, fee });
+          send(res, 200, quote);
+        } catch (error) {
+          send(res, 502, { error: "quote_unavailable", message: error instanceof Error ? error.message : "Uniswap quote failed" });
+        }
+        return;
+      }
+      if (url.pathname === "/api/v1/simulation/status") {
+        send(res, 200, {
+          configured: false, executionEnabled: false, status: "not_configured",
+          required: ["forked Ethereum state at a pinned block", "complete liquidation transaction calldata", "flash-loan and DEX callback path", "isolated simulation runner and gas accounting"],
+          warning: "VaultHunter does not yet simulate the complete liquidation transaction. A Uniswap quote alone is not a simulation. Do not treat a positive estimate or quote as executable."
+        });
         return;
       }
       if (url.pathname === "/api/v1/scan") {
