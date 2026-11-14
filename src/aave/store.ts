@@ -191,6 +191,19 @@ export class SqliteAaveStore {
     `).all(chainId, poolAddress, limit) as BorrowerRecord[];
   }
 
+  upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): void {
+    const insert = this.db.prepare(`
+      INSERT INTO aave_borrowers
+        (chain_id, pool_address, address, first_seen_block, last_seen_block)
+      VALUES (?, ?, ?, 0, 0)
+      ON CONFLICT(chain_id, pool_address, address) DO NOTHING
+    `);
+    const transaction = this.db.transaction(() => {
+      for (const address of addresses) insert.run(chainId, poolAddress, address);
+    });
+    transaction();
+  }
+
   saveSnapshot(snapshot: BorrowerSnapshot): void {
     this.db.prepare(`
       UPDATE aave_borrowers SET
@@ -283,6 +296,7 @@ export interface AaveStorePort {
   saveEventsAndCheckpoint(protocol: string, chainId: number, poolAddress: string, events: StoredBorrowEvent[], lastBlock: number, lastBlockHash: string): Promise<void>;
   rollbackTo(protocol: string, chainId: number, poolAddress: string, blockNumber: number, blockHash: string): Promise<void>;
   listBorrowers(chainId: number, poolAddress: string, limit?: number): Promise<BorrowerRecord[]>;
+  upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): Promise<void>;
   saveSnapshot(snapshot: BorrowerSnapshot): Promise<void>;
   getStats(chainId: number, poolAddress: string): Promise<{eventCount:number;borrowerCount:number;candidateCount:number;checkpoint:IndexerCheckpoint|null}>;
   listBorrowerSnapshots(chainId: number, poolAddress: string, limit?: number, eligibleOnly?: boolean): Promise<Array<{
