@@ -1,5 +1,5 @@
 const baseUrl = (process.env.VAULTHUNTER_API_URL || "https://vaulthunter-core.onrender.com").replace(/\/$/, "");
-const lookbackBlocks = Math.max(1, Math.min(10_000, Number(process.env.VAULTHUNTER_LOOKBACK_BLOCKS || 100)));
+const lookbackBlocks = Math.max(1, Math.min(500, Number(process.env.VAULTHUNTER_LOOKBACK_BLOCKS || 100)));
 const pollMs = Math.max(15_000, Number(process.env.VAULTHUNTER_POLL_MS || 30_000));
 const seen = new Set();
 
