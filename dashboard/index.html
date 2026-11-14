@@ -110,11 +110,11 @@
       const liveScan=scanRes.ok?await scanRes.json():null;
       const liveCandidates=liveScan?.candidates||[];
       const snap=rows.filter(x=>x.healthFactorWad!==null);
-      const displayRows=liveCandidates.length?liveCandidates.map(x=>({
+      const displayRows=liveScan?liveCandidates.map(x=>({
         address:x.borrower,healthFactorWad:x.healthFactorWad,
         totalCollateralBase:x.totalCollateralBase,totalDebtBase:x.totalDebtBase
       })):snap;
-      const hfs=(liveCandidates.length
+      const hfs=(liveScan
         ?liveCandidates.map(x=>Number(x.healthFactorWad)/1e18)
         :snap.map(x=>health(x.healthFactorWad))).filter(x=>x!==null);
       const critical=liveScan?liveCandidates.length:hfs.filter(x=>x<1).length;
