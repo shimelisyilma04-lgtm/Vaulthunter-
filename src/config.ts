@@ -14,6 +14,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   ETHEREUM_RPC_URL: z.string().url().optional(),
+  DATABASE_URL: z.string().url().optional(),
   AAVE_SCAN_LOOKBACK_BLOCKS: z.coerce.number().int().min(1).max(10000).default(100),
   AAVE_INDEXER_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   AAVE_INDEXER_START_BLOCK: z.preprocess(
