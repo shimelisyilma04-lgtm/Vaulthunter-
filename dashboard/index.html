@@ -115,7 +115,7 @@
     try{
       const [statusRes,borrowersRes,scanRes]=await Promise.all([
         fetch('/api/v1/status'),
-        fetch('/api/v1/borrowers?limit=200'),
+        fetch('/api/v1/risk?limit=200'),
         fetch('/api/v1/scan')
       ]);
       if(!statusRes.ok||!borrowersRes.ok)throw new Error('API request failed');
@@ -125,32 +125,25 @@
       const liveScan=scanRes.ok?await scanRes.json():null;
       const liveCandidates=liveScan?.candidates||[];
       const snap=rows.filter(x=>x.healthFactorWad!==null);
-      const displayRows=liveScan?liveCandidates.map(x=>({
-        address:x.borrower,healthFactorWad:x.healthFactorWad,
-        totalCollateralBase:x.totalCollateralBase,totalDebtBase:x.totalDebtBase
-      })):snap;
-      const hfs=(liveScan
-        ?liveCandidates.map(x=>Number(x.healthFactorWad)/1e18)
-        :snap.map(x=>health(x.healthFactorWad))).filter(x=>x!==null);
-      const critical=liveScan?liveCandidates.length:hfs.filter(x=>x<1).length;
-      const high=liveScan?0:hfs.filter(x=>x>=1&&x<1.05).length;
-      const watch=liveScan?0:hfs.filter(x=>x>=1.05&&x<1.1).length;
+      const displayRows=snap;
+      const hfs=snap.map(x=>health(x.healthFactorWad)).filter(x=>x!==null);
+      const critical=hfs.filter(x=>x<1).length;
+      const high=hfs.filter(x=>x>=1&&x<1.05).length;
+      const watch=hfs.filter(x=>x>=1.05&&x<1.1).length;
       document.getElementById('apiBadge').textContent=liveScan?'LIVE RPC SCAN · READ ONLY':status.rpcConfigured?'RPC SET · SCAN UNAVAILABLE':'API ONLINE · RPC NOT SET';
       const indexerNote=!status.indexerEnabled
-        ?(status.durableStorageConfigured?'Historical indexing is switched off; enable it after reviewing the backfill plan.':'Historical indexing is paused until a persistent PostgreSQL DATABASE_URL is connected. The current Render Free SQLite filesystem is temporary.')
-        :'Historical indexing is enabled with '+(status.storageBackend||'configured storage')+'.';
+        ?(status.durableStorageConfigured?'The live indexer is switched off.':'Indexing is paused until durable PostgreSQL storage is connected.')
+        :'Recent-window live indexing is running with '+(status.storageBackend||'configured storage')+'. Historical market coverage is incomplete; only discovered borrowers are ranked. Broader historical discovery is a separate integration.';
       document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(liveScan?'Live Ethereum scan completed.':status.rpcConfigured?'Ethereum RPC is configured, but the scan did not return.':'API is online; Ethereum RPC is not configured.')+'</b> '+(liveScan?'Results cover only recent Borrow events from blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':snap.length?'Showing indexed Aave borrower snapshots.':'No live borrower data is available yet.')+' '+indexerNote+' This is monitoring data, not a promise of liquidation profit.</div>';
-      document.getElementById('metricBorrowers').textContent=(liveScan?liveScan.borrowersDiscovered:status.counts.knownBorrowers).toLocaleString();
-      document.getElementById('metricAtRisk').textContent=(liveScan?liveScan.accountsChecked:snap.length).toLocaleString();
-      document.getElementById('metricLiquidatable').textContent=(liveScan?liveCandidates.length:critical).toLocaleString();
+      document.getElementById('metricBorrowers').textContent=status.counts.knownBorrowers.toLocaleString();
+      document.getElementById('metricAtRisk').textContent=snap.length.toLocaleString();
+      document.getElementById('metricLiquidatable').textContent=critical.toLocaleString();
       document.getElementById('metricBlock').textContent=liveScan?liveScan.toBlock.toLocaleString():(status.checkpoint?.lastBlock?.toLocaleString()||'—');
       document.getElementById('riskCritical').textContent=critical;
       document.getElementById('riskHigh').textContent=high;
       document.getElementById('riskWatch').textContent=watch;
-      document.getElementById('eventCountLabel').textContent=liveScan?'Live RPC scan · '+liveScan.fromBlock+'–'+liveScan.toBlock:status.counts.borrowEvents.toLocaleString()+' indexed Borrow events';
-      document.getElementById('eventSummary').textContent=liveScan
-        ?liveScan.borrowersDiscovered+' borrowers discovered in '+(liveScan.toBlock-liveScan.fromBlock+1)+' recent blocks; '+liveCandidates.length+' currently below HF 1.'
-        :status.counts.borrowEvents.toLocaleString()+' Borrow events stored · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started');
+      document.getElementById('eventCountLabel').textContent=status.counts.borrowEvents.toLocaleString()+' indexed Borrow events';
+      document.getElementById('eventSummary').textContent=status.counts.borrowEvents.toLocaleString()+' Borrow events stored across the configured recent-window/live-tail index · latest indexed block '+(status.checkpoint?.lastBlock?.toLocaleString()||'not started')+'. '+(liveScan?'A separate live RPC scan checked blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':'Live RPC scan unavailable.');
       document.querySelectorAll('#risk .bar i').forEach((bar,i)=>{
         const values=[critical,high,watch],total=Math.max(1,critical+high+watch);
         bar.style.width=(values[i]/total*100)+'%';
