@@ -71,6 +71,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           rpcConfigured: Boolean(config.ETHEREUM_RPC_URL),
           rpcConfigurationError: rpcConfigError,
           indexerEnabled: config.AAVE_INDEXER_ENABLED,
+          durableStorageConfigured: Boolean(config.DATABASE_URL),
+          storageBackend: config.DATABASE_URL ? "postgresql" : "local-sqlite",
           checkpoint: stats.checkpoint,
           counts: {
             borrowEvents: stats.eventCount,
