@@ -5,6 +5,7 @@ import { AaveStore } from "../aave/store.js";
 import { config, rpcConfigError } from "../config.js";
 import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
+import { fetchAaveKitPositions } from "../aave/aavekit.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -76,6 +77,20 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           },
           warning: "Liquidation eligibility is a health-factor snapshot, not proof of a profitable or executable liquidation."
         });
+        return;
+      }
+      if (url.pathname === "/api/v1/positions") {
+        const user = url.searchParams.get("user")?.trim();
+        if (!user || !/^0x[0-9a-fA-F]{40}$/.test(user)) {
+          send(res, 400, { error: "invalid_user_address", message: "Provide a valid 20-byte Ethereum address in the user query parameter." });
+          return;
+        }
+        try {
+          const positions = await fetchAaveKitPositions(user);
+          send(res, 200, positions);
+        } catch (error) {
+          send(res, 502, { error: "aavekit_unavailable", message: error instanceof Error ? error.message : "AaveKit request failed" });
+        }
         return;
       }
       if (url.pathname === "/api/v1/estimate") {
