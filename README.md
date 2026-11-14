@@ -13,7 +13,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 
 ## Run the Aave historical indexer
 
-Requires Node.js 20+ and an Ethereum Mainnet RPC endpoint.
+Requires Node.js 20+ and an Ethereum Mainnet RPC endpoint. On Windows, run `powershell -ExecutionPolicy Bypass -File .\\scripts\\start-indexer.ps1` for one pass, or add `-Continuous` to keep indexing while your computer is on. The script creates `.env` and asks for the RPC endpoint if needed.
 
 1. Copy `.env.example` to `.env`.
 2. Set `ETHEREUM_RPC_URL` to your Ethereum Mainnet RPC endpoint. Keep it private; do not commit `.env`.
