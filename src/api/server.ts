@@ -28,6 +28,13 @@ function limitFrom(url: URL, fallback = 100, max = 500): number {
   return Number.isInteger(raw) ? Math.max(1, Math.min(max, raw)) : fallback;
 }
 
+function lookbackBlocksFrom(url: URL): number {
+  const raw = Number(url.searchParams.get("lookbackBlocks") ?? config.AAVE_SCAN_LOOKBACK_BLOCKS);
+  return Number.isInteger(raw)
+    ? Math.max(1, Math.min(10000, raw))
+    : config.AAVE_SCAN_LOOKBACK_BLOCKS;
+}
+
 export function startHttpServer(store: AaveStore): ReturnType<typeof createServer> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === "OPTIONS") {
@@ -113,7 +120,7 @@ export function startHttpServer(store: AaveStore): ReturnType<typeof createServe
           send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Set ETHEREUM_RPC_URL to the full HTTPS endpoint from your Ethereum RPC provider." });
           return;
         }
-        const lookbackBlocks = limitFrom(url, config.AAVE_SCAN_LOOKBACK_BLOCKS, 10000);
+        const lookbackBlocks = lookbackBlocksFrom(url);
         if (scanCache && scanCache.lookbackBlocks === lookbackBlocks && Date.now() - scanCache.createdAt < 60000) {
           send(res, 200, { ...scanCache.data, cached: true, source: "live-ethereum-rpc" });
           return;
