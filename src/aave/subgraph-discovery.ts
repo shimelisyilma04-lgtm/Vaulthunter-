@@ -1,5 +1,5 @@
 const AAVE_V3_ETHEREUM_SUBGRAPH_ID = "Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g";
-const AAVE_V3_POOL = "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2";
+export const AAVE_V3_POOL_ADDRESS = "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 10;
 
@@ -40,7 +40,7 @@ export async function discoverAaveBorrowersFromSubgraph(apiKey: string): Promise
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const skip = page * PAGE_SIZE;
     const query = `query VaultHunterBorrowerDiscovery {
-      pools(where: { pool: "${AAVE_V3_POOL}" }, first: 1) {
+      pools(where: { pool: "${AAVE_V3_POOL_ADDRESS}" }, first: 1) {
         id
         borrowHistory(first: ${PAGE_SIZE}, skip: ${skip}, orderBy: timestamp, orderDirection: desc) {
           id
