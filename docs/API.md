@@ -37,7 +37,7 @@ Use `GET /api/v1/market` to retrieve Aave V3 Ethereum reserve metadata, liquidat
 
 The optional GET /api/v1/discovery/subgraph adapter queries Aave's official Ethereum V3 protocol subgraph through The Graph. It reads at most 1,000 recent Borrow events (10 pages of 100), deduplicates borrower addresses, and reports the observed timestamp range. It is bounded recent-history discovery, not an exhaustive all-time borrower census. The Graph API key must be stored as the Render secret environment variable AAVE_SUBGRAPH_API_KEY; never place it in a URL shared publicly or in source control. When the key is absent, the endpoint returns 503 and status reports the provider as not configured.
 
-The subgraph is an indexed source. Its borrowers must still be refreshed with current Ethereum RPC account data before risk ranking. Aave documents the official Ethereum V3 deployment and pagination limits in its protocol-subgraphs repository.
+When configured, the live indexer periodically syncs discovered addresses into durable PostgreSQL storage (default every 15 minutes) and then refreshes their current account data using Ethereum RPC before they appear in the ranked risk feed. The subgraph is an indexed source and its stored balances are not treated as current positions. Aave documents the official Ethereum V3 deployment and pagination limits in its protocol-subgraphs repository.
 
 ## Risk ranking feed
 
