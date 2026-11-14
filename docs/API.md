@@ -16,6 +16,7 @@ All endpoints are read-only. The service does not accept wallet credentials, sig
 | GET | `/api/v1/borrowers?limit=100` | Stored borrower snapshots |
 | GET | `/api/v1/candidates?limit=100` | Stored snapshots flagged below health factor 1 |
 | GET | `/api/v1/risk?limit=100` | Health-factor-ranked borrower snapshots with age/freshness labels |
+| GET | `/api/v1/discovery/subgraph` | Up to 1,000 recent Aave V3 Borrow events deduplicated to borrower addresses; requires AAVE_SUBGRAPH_API_KEY |
 | GET | `/api/v1/quote/uniswap-v3?tokenIn=0x...&tokenOut=0x...&amountIn=1000000&fee=500` | Single-pool Uniswap V3 QuoterV2 read-only quote at a pinned block |
 | GET | `/api/v1/simulation/status` | Explicit status of the not-yet-configured full liquidation simulation runner |
 | GET | `/api/v1/events?limit=50` | Recent indexed Borrow events |
@@ -31,6 +32,12 @@ A health factor below 1 means the position is eligible by the health-factor test
 
 Use `GET /api/v1/market` to retrieve Aave V3 Ethereum reserve metadata, liquidation bonus and threshold values, available liquidity, oracle addresses, and flash-loan enabled flags. This is useful for trader bots to discover reserve pairs and screen routes. It is provider-indexed and not pinned to a specific RPC block; fetch exact configuration and oracle values at one pinned block before simulation.\n\nUse `GET /api/v1/positions?user=0x...` to fetch the selected user's supplied and borrowed assets, token amounts, USD values, and Aave account summary through the official AaveKit GraphQL API. This is useful for bots that already have a candidate address and need reserve-level context. It does not enumerate every borrower in the market. AaveKit responses may be cached and are not guaranteed to match the RPC scan's block; the API marks this as `provider-indexed-not-pinned` and returns a warning.
 
+
+## Historical borrower discovery
+
+The optional GET /api/v1/discovery/subgraph adapter queries Aave's official Ethereum V3 protocol subgraph through The Graph. It reads at most 1,000 recent Borrow events (10 pages of 100), deduplicates borrower addresses, and reports the observed timestamp range. It is bounded recent-history discovery, not an exhaustive all-time borrower census. The Graph API key must be stored as the Render secret environment variable AAVE_SUBGRAPH_API_KEY; never place it in a URL shared publicly or in source control. When the key is absent, the endpoint returns 503 and status reports the provider as not configured.
+
+The subgraph is an indexed source. Its borrowers must still be refreshed with current Ethereum RPC account data before risk ranking. Aave documents the official Ethereum V3 deployment and pagination limits in its protocol-subgraphs repository.
 
 ## Risk ranking feed
 
