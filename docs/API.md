@@ -19,7 +19,7 @@ All endpoints are read-only. The service does not accept wallet credentials, sig
 
 ## Scan semantics
 
-The scanner discovers addresses from recent Aave V3 Pool `Borrow` events, then reads current account data. It is not an exhaustive market-wide borrower directory: borrowers with no Borrow event in the selected block window are not discovered. The scan is bounded to 1–10,000 blocks and internally splits log queries into small sequential ranges to respect provider limits. Results are cached briefly.
+The scanner discovers addresses from recent Aave V3 Pool `Borrow` events, then reads current account data. It is not an exhaustive market-wide borrower directory: borrowers with no Borrow event in the selected block window are not discovered. The scan is bounded to 1–500 blocks and internally splits log queries into small sequential ranges to respect provider limits. Results are cached briefly.
 
 A health factor below 1 means the position is eligible by the health-factor test at the observation time. It does not prove that a specific debt/collateral pair can be liquidated or that execution is profitable.
 
