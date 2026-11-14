@@ -11,6 +11,11 @@ const server = startHttpServer(store);
 let stopping = false;
 
 async function runIndexerLoop(): Promise<void> {
+  if (!config.AAVE_INDEXER_ENABLED) {
+    logger.info("Historical indexing is disabled; live bounded scans remain available through the API");
+    return;
+  }
+
   if (!config.ETHEREUM_RPC_URL) {
     logger.warn("ETHEREUM_RPC_URL is not configured; API is online but indexing is paused");
     return;
