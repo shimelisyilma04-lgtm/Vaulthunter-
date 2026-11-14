@@ -1,11 +1,11 @@
 import pino from "pino";
 import { config, rpcConfigError } from "./config.js";
-import { AaveStore } from "./aave/store.js";
+import { AaveStore } from "./aave/store-factory.js";
 import { runAaveIndexerPass } from "./aave/indexer.js";
 import { startHttpServer } from "./api/server.js";
 
 const logger = pino({ level: config.LOG_LEVEL });
-const store = new AaveStore(config.VAULTHUNTER_DB_PATH);
+const store = new AaveStore(config.VAULTHUNTER_DB_PATH, config.DATABASE_URL);
 const server = startHttpServer(store);
 
 if (rpcConfigError) {
@@ -17,6 +17,11 @@ let stopping = false;
 async function runIndexerLoop(): Promise<void> {
   if (!config.AAVE_INDEXER_ENABLED) {
     logger.info("Historical indexing is disabled; live bounded scans remain available through the API");
+    return;
+  }
+
+  if (config.NODE_ENV === "production" && !config.DATABASE_URL) {
+    logger.error("Historical indexing requires DATABASE_URL on hosted production services; local SQLite is ephemeral on Render Free");
     return;
   }
 
@@ -54,8 +59,7 @@ function shutdown(signal: string): void {
   stopping = true;
   logger.info({ signal }, "Shutting down VaultHunter");
   server.close(() => {
-    store.close();
-    process.exit(0);
+    void store.close().finally(() => process.exit(0));
   });
   setTimeout(() => process.exit(1), 10000).unref();
 }
