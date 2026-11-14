@@ -21,6 +21,9 @@ const poolInterface = new Interface(AAVE_POOL_ABI);
 const borrowTopic = poolInterface.getEvent("Borrow")!.topicHash;
 let lastSubgraphSyncAt = 0;
 let subgraphConfigLogged = false;
+let snapshotCursor = 0;
+// Rotates the bounded RPC snapshot batch through the complete borrower set.
+// This cursor is intentionally process-local; a restart simply begins at zero.
 
 export interface IndexerPassResult {
   poolAddress: string;
@@ -203,9 +206,17 @@ export async function runAaveIndexerPass(
     // Snapshots are refreshed after the event index catches up to the confirmed chain head.
     const caughtUp = lastCompleted >= safeHead;
     const pool = new Contract(poolAddress, AAVE_POOL_ABI, provider);
+    const snapshotStats = caughtUp ? await store.getStats(chainId, poolAddress) : null;
+    const borrowerCount = snapshotStats?.borrowerCount ?? 0;
+    const snapshotOffset = borrowerCount > 0 ? snapshotCursor % borrowerCount : 0;
     const borrowers = caughtUp
-      ? await store.listBorrowers(chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE)
+      ? await store.listBorrowers(
+          chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE, snapshotOffset
+        )
       : [];
+    if (borrowerCount > 0) {
+      snapshotCursor = (snapshotOffset + borrowers.length) % borrowerCount;
+    }
     let snapshotsUpdated = 0;
     let accountReadFailures = 0;
 
