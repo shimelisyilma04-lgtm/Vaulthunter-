@@ -241,7 +241,7 @@ export class AaveStore {
       WHERE chain_id = ? AND pool_address = ? ${eligibleClause}
       ORDER BY
         CASE WHEN health_factor_wad IS NULL THEN 1 ELSE 0 END ASC,
-        CAST(health_factor_wad AS REAL) ASC,
+        length(health_factor_wad) ASC, health_factor_wad ASC,
         last_seen_block DESC
       LIMIT ?
     `).all(chainId, poolAddress, limit) as Array<{
