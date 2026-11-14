@@ -143,6 +143,29 @@ export class PostgresAaveStore implements AaveStorePort {
     }));
   }
 
+  async upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): Promise<void> {
+    await this.ready;
+    if (addresses.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const address of addresses) {
+        await client.query(
+          `INSERT INTO aave_borrowers
+           (chain_id,pool_address,address,first_seen_block,last_seen_block)
+           VALUES($1,$2,$3,0,0) ON CONFLICT(chain_id,pool_address,address) DO NOTHING`,
+          [chainId,poolAddress,address]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async saveSnapshot(snapshot: BorrowerSnapshot): Promise<void> {
     await this.ready;
     await this.pool.query(
