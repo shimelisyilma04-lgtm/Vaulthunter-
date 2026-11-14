@@ -189,7 +189,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         const fee = Number(url.searchParams.get("fee"));
         if (!/^0x[0-9a-fA-F]{40}$/.test(tokenIn) ||
             !/^0x[0-9a-fA-F]{40}$/.test(tokenOut) ||
-            !/^\\d+$/.test(amountIn) || amountIn.length > 78 ||
+            !/^[0-9]+$/.test(amountIn) || amountIn.length > 78 ||
             !Number.isInteger(fee)) {
           send(res, 400, { error: "invalid_quote_parameters", message: "Provide tokenIn, tokenOut, positive integer amountIn in token base units, and fee tier 100, 500, 3000, or 10000." });
           return;
