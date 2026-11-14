@@ -225,6 +225,50 @@ export class AaveStore {
     };
   }
 
+
+  listBorrowerSnapshots(chainId: number, poolAddress: string, limit = 100, eligibleOnly = false): Array<{
+    address: string; firstSeenBlock: number; lastSeenBlock: number; observedBlock: number | null;
+    totalCollateralBase: string | null; totalDebtBase: string | null; healthFactorWad: string | null;
+    liquidationEligible: boolean; snapshotUpdatedAt: string | null;
+  }> {
+    const eligibleClause = eligibleOnly ? "AND liquidation_eligible = 1" : "";
+    const rows = this.db.prepare(`
+      SELECT address, first_seen_block AS firstSeenBlock, last_seen_block AS lastSeenBlock,
+        observed_block AS observedBlock, total_collateral_base AS totalCollateralBase,
+        total_debt_base AS totalDebtBase, health_factor_wad AS healthFactorWad,
+        liquidation_eligible AS liquidationEligible, snapshot_updated_at AS snapshotUpdatedAt
+      FROM aave_borrowers
+      WHERE chain_id = ? AND pool_address = ? ${eligibleClause}
+      ORDER BY
+        CASE WHEN health_factor_wad IS NULL THEN 1 ELSE 0 END ASC,
+        CAST(health_factor_wad AS REAL) ASC,
+        last_seen_block DESC
+      LIMIT ?
+    `).all(chainId, poolAddress, limit) as Array<{
+      address: string; firstSeenBlock: number; lastSeenBlock: number; observedBlock: number | null;
+      totalCollateralBase: string | null; totalDebtBase: string | null; healthFactorWad: string | null;
+      liquidationEligible: number; snapshotUpdatedAt: string | null;
+    }>;
+    return rows.map((row) => ({ ...row, liquidationEligible: row.liquidationEligible === 1 }));
+  }
+
+  listRecentBorrowEvents(chainId: number, poolAddress: string, limit = 50): Array<{
+    txHash: string; blockNumber: number; borrower: string; reserve: string;
+    amount: string; blockTimestamp: number;
+  }> {
+    return this.db.prepare(`
+      SELECT tx_hash AS txHash, block_number AS blockNumber, borrower, reserve,
+        amount, block_timestamp AS blockTimestamp
+      FROM aave_borrow_events
+      WHERE chain_id = ? AND pool_address = ?
+      ORDER BY block_number DESC, log_index DESC
+      LIMIT ?
+    `).all(chainId, poolAddress, limit) as Array<{
+      txHash: string; blockNumber: number; borrower: string; reserve: string;
+      amount: string; blockTimestamp: number;
+    }>;
+  }
+
   close(): void {
     this.db.close();
   }
