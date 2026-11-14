@@ -224,7 +224,12 @@ export async function runAaveIndexerPass(
       const batch = borrowers.slice(offset, offset + 5);
       const results = await Promise.all(batch.map(async (borrower) => {
         try {
-          const account = await pool.getFunction("getUserAccountData")(borrower.address) as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
+          // Pin every account snapshot to the same confirmed block. Without
+          // blockTag, a moving latest head could make the stored observedBlock
+          // disagree with the state returned by the RPC call.
+          const account = await pool.getFunction("getUserAccountData").staticCall(
+            borrower.address, { blockTag: safeHead }
+          ) as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
           const collateral = account[0];
           const debt = account[1];
           const healthFactor = account[5];
@@ -232,7 +237,7 @@ export async function runAaveIndexerPass(
             chainId,
             poolAddress,
             address: borrower.address,
-            observedBlock: head,
+            observedBlock: safeHead,
             totalCollateralBase: collateral.toString(),
             totalDebtBase: debt.toString(),
             healthFactorWad: healthFactor.toString(),
