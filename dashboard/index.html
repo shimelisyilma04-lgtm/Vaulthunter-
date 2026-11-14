@@ -91,7 +91,7 @@
       if(!statusRes.ok||!borrowersRes.ok)throw new Error('API request failed');
       const status=await statusRes.json(), payload=await borrowersRes.json(), rows=payload.data||[];
       const snap=rows.filter(x=>x.healthFactorWad!==null);
-      const hfs=snap.map(x=>health(x.healthFactorWad));
+      const hfs=snap.map(x=>health(x.healthFactorWad)).filter((x)=>x!==null);
       const critical=hfs.filter(x=>x<1).length, high=hfs.filter(x=>x>=1&&x<1.05).length, watch=hfs.filter(x=>x>=1.05&&x<1.1).length;
       document.getElementById('apiBadge').textContent=status.rpcConfigured?'LIVE API · READ ONLY':'API ONLINE · RPC NOT SET';
       document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(status.rpcConfigured?'Connected to VaultHunter API.':'API is online; Ethereum RPC is not configured.')+'</b> '+(snap.length?'Showing indexed Aave borrower snapshots.':'No borrower snapshots have been indexed yet. Configure the RPC and indexer before expecting live data.')+' This is monitoring data, not a promise of liquidation profit.</div>';
@@ -106,7 +106,7 @@
       document.getElementById('footerStatus').textContent='API online · '+(status.rpcConfigured?'RPC configured':'RPC not configured')+' · Read-only · No transactions submitted';
       const body=document.getElementById('borrowerRows');
       body.innerHTML=rows.filter(x=>x.healthFactorWad!==null).map(x=>{
-        const hf=health(x.healthFactorWad), level=risk(hf), cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
+        const hf=Number(x.healthFactorWad)/1e18, level=risk(hf), cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
         return '<tr><td class="address" title="'+esc(x.address)+'">'+esc(shortAddress(x.address))+'</td><td>'+hf.toFixed(4)+'</td><td>'+fmtUsd(x.totalCollateralBase)+'</td><td>'+fmtUsd(x.totalDebtBase)+'</td><td><span class="pill '+cls+'">'+level+'</span></td></tr>';
       }).join('')||'<tr><td colspan="5">No health-factor snapshots yet. The indexer must run first.</td></tr>';
       filter.dispatchEvent(new Event('input'));
