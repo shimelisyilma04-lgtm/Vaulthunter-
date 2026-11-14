@@ -13,7 +13,7 @@ import {
   ADDRESSES_PROVIDER_ABI
 } from "./abi.js";
 import type { AaveStorePort, StoredBorrowEvent } from "./store.js";
-import { AAVE_V3_POOL_ADDRESS, discoverAaveBorrowersFromSubgraph } from "./subgraph-discovery.js";
+import { discoverAaveBorrowersFromSubgraph } from "./subgraph-discovery.js";
 
 const protocol = "aave-v3";
 const chainId = 1;
