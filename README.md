@@ -23,7 +23,7 @@ Requires Node.js 20+ and an Ethereum Mainnet RPC endpoint. On Windows, run `powe
 
 1. Copy `.env.example` to `.env`.
 2. Set `ETHEREUM_RPC_URL` to your Ethereum Mainnet RPC endpoint. Keep it private; do not commit `.env`.
-3. The default `AAVE_INDEXER_START_BLOCK=16291127` is the documented Ethereum Aave V3 Pool deployment/start block. Change it only if you intentionally want a later partial index.
+3. Leave `AAVE_INDEXER_START_BLOCK` unset for a safe recent-window bootstrap (the last `AAVE_SCAN_LOOKBACK_BLOCKS`, 100 by default), then continuous indexing follows new blocks. Set `AAVE_INDEXER_START_BLOCK=16291127` only when you intentionally want a full-history backfill; this can require millions of RPC log requests and is not recommended on a free RPC tier.
 4. Run a one-shot pass or continuous indexer:
 
 ```bash
