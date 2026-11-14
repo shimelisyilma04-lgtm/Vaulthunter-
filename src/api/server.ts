@@ -17,8 +17,52 @@ let scanCache: { createdAt: number; lookbackBlocks: number; data: Awaited<Return
 let marketCache: { createdAt: number; data: Awaited<ReturnType<typeof fetchAaveMarketSnapshot>> } | null = null;
 const scanInFlight = new Map<number, Promise<Awaited<ReturnType<typeof scanAaveBorrowers>>>>();
 
+type RateBucket = { startedAt: number; count: number };
+const rateBuckets = new Map<string, RateBucket>();
+const RATE_WINDOW_MS = 60_000;
+
+function rateLimitFor(pathname: string): { key: string; max: number } {
+  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
+  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/positions"].includes(pathname)) {
+    return { key: pathname, max: 30 };
+  }
+  return { key: "general-api", max: 300 };
+}
+
+function rateLimitExceeded(req: IncomingMessage, pathname: string): number | null {
+  const forwarded = req.headers["x-forwarded-for"];
+  const client = typeof forwarded === "string"
+    ? forwarded.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown"
+    : req.socket.remoteAddress || "unknown";
+  const policy = rateLimitFor(pathname);
+  const key = `${client}:${policy.key}`;
+  const now = Date.now();
+  let bucket = rateBuckets.get(key);
+  if (!bucket || now - bucket.startedAt >= RATE_WINDOW_MS) {
+    bucket = { startedAt: now, count: 0 };
+    rateBuckets.set(key, bucket);
+  }
+  if (bucket.count >= policy.max) {
+    return Math.max(1, Math.ceil((RATE_WINDOW_MS - (now - bucket.startedAt)) / 1000));
+  }
+  bucket.count += 1;
+
+  // Bound memory use if callers rotate addresses.
+  if (rateBuckets.size > 10_000) {
+    for (const [entryKey, entry] of rateBuckets) {
+      if (now - entry.startedAt >= RATE_WINDOW_MS) rateBuckets.delete(entryKey);
+      if (rateBuckets.size <= 8_000) break;
+    }
+  }
+  return null;
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "permissions-policy": "camera=(), microphone=(), geolocation=()",
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
@@ -57,6 +101,16 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
     }
 
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    const retryAfter = rateLimitExceeded(req, url.pathname);
+    if (retryAfter !== null) {
+      res.setHeader("retry-after", String(retryAfter));
+      send(res, 429, {
+        error: "rate_limited",
+        message: "Too many requests. Please wait before retrying.",
+        retryAfterSeconds: retryAfter
+      });
+      return;
+    }
     try {
       if (url.pathname === "/healthz") {
         send(res, 200, { ok: true, service: "vaulthunter-api", mode: "read-only" });
@@ -269,7 +323,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       }
       if (url.pathname === "/") {
         const html = await readFile(dashboardPath, "utf8");
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "no-referrer", "permissions-policy": "camera=(), microphone=(), geolocation=()" });
         res.end(html);
         return;
       }
