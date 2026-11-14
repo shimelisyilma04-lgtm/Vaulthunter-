@@ -20,6 +20,7 @@ const chainId = 1;
 const poolInterface = new Interface(AAVE_POOL_ABI);
 const borrowTopic = poolInterface.getEvent("Borrow")!.topicHash;
 let lastSubgraphSyncAt = 0;
+let subgraphConfigLogged = false;
 
 export interface IndexerPassResult {
   poolAddress: string;
@@ -99,6 +100,13 @@ export async function runAaveIndexerPass(
   const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
   let reorgDetected = false;
   try {
+    if (!subgraphConfigLogged) {
+      console.info(JSON.stringify({
+        subgraphDiscoveryConfigured: Boolean(config.AAVE_SUBGRAPH_API_KEY),
+        subgraphSyncIntervalMs: config.AAVE_SUBGRAPH_SYNC_INTERVAL_MS
+      }), "Aave subgraph discovery runtime configuration");
+      subgraphConfigLogged = true;
+    }
     const network = await provider.getNetwork();
     if (network.chainId !== BigInt(chainId)) {
       throw new Error(`Aave indexer requires Ethereum chain ID 1; received ${network.chainId}`);
