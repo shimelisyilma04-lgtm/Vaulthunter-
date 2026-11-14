@@ -13,11 +13,13 @@ import {
   ADDRESSES_PROVIDER_ABI
 } from "./abi.js";
 import type { AaveStorePort, StoredBorrowEvent } from "./store.js";
+import { AAVE_V3_POOL_ADDRESS, discoverAaveBorrowersFromSubgraph } from "./subgraph-discovery.js";
 
 const protocol = "aave-v3";
 const chainId = 1;
 const poolInterface = new Interface(AAVE_POOL_ABI);
 const borrowTopic = poolInterface.getEvent("Borrow")!.topicHash;
+let lastSubgraphSyncAt = 0;
 
 export interface IndexerPassResult {
   poolAddress: string;
@@ -166,6 +168,27 @@ export async function runAaveIndexerPass(
       lastCompleted = toBlock;
       // Pace sequential eth_getLogs requests on free RPC tiers.
       await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    // Periodically enrich the durable borrower set from Aave's official subgraph.
+    // The Graph provides discovery only; every position is still refreshed from on-chain RPC below.
+    if (config.AAVE_SUBGRAPH_API_KEY &&
+        Date.now() - lastSubgraphSyncAt >= config.AAVE_SUBGRAPH_SYNC_INTERVAL_MS) {
+      lastSubgraphSyncAt = Date.now();
+      try {
+        const discovery = await discoverAaveBorrowersFromSubgraph(config.AAVE_SUBGRAPH_API_KEY);
+        await store.upsertDiscoveredBorrowers(chainId, poolAddress, discovery.addresses);
+        console.info(JSON.stringify({
+          source: discovery.source,
+          eventsRead: discovery.eventsRead,
+          pagesRead: discovery.pagesRead,
+          uniqueBorrowers: discovery.addresses.length,
+          completeness: discovery.completeness
+        }), "Aave subgraph borrower discovery synced");
+      } catch (error) {
+        console.warn("Aave subgraph discovery failed; continuing with RPC live-tail indexer",
+          error instanceof Error ? error.message : String(error));
+      }
     }
 
     // Avoid spending RPC quota refreshing account data for every tiny historical batch.
