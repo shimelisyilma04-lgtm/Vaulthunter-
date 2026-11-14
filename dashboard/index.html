@@ -22,6 +22,7 @@
     <div class="navlabel">WORKSPACE</div>
     <nav class="nav">
       <a class="active" href="#overview"><span class="ico">◫</span>Overview</a>
+      <a href="#market"><span class="ico">◈</span>Market data</a>
       <a href="#borrowers"><span class="ico">◎</span>Borrowers</a>
       <a href="#risk"><span class="ico">⌁</span>Risk monitor</a>
       <a href="#activity"><span class="ico">◷</span>Event activity</a>
@@ -59,6 +60,16 @@
         <div class="riskrow"><span>Watch · HF 1.05–1.10</span><b class="risknum" id="riskWatch">—</b></div><div class="bar"><i style="width:66%;background:var(--blue)"></i></div>
         <div class="signal"><span class="dot"></span>Health-factor snapshots can become stale as prices and positions change.</div>
       </article>
+    </section>
+    <section class="panel tablepanel" id="market" style="margin-top:16px">
+      <div class="tabletop"><div><h2>Aave V3 market intelligence</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">Reserve liquidity, liquidation settings and flash-loan availability from AaveKit</span></div><button class="calc-button" id="refreshMarket" type="button">Refresh market</button></div>
+      <div class="cards" style="margin:12px 0">
+        <article class="card"><div class="cardhead">Total market size</div><div class="metric" id="marketSize">—</div></article>
+        <article class="card"><div class="cardhead">Available liquidity</div><div class="metric" id="marketLiquidity">—</div></article>
+        <article class="card"><div class="cardhead">Reserves</div><div class="metric" id="marketReserveCount">—</div></article>
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>ASSET</th><th>RESERVE SIZE</th><th>AVAILABLE TO BORROW</th><th>LIQUIDATION BONUS</th><th>FLASH LOAN</th><th>STATUS</th></tr></thead><tbody id="marketRows"><tr><td colspan="6">Loading market reserve data…</td></tr></tbody></table></div>
+      <p id="marketFreshness" class="hint" style="margin-top:10px">Market data is provider-indexed and must be revalidated on-chain at a pinned block.</p>
     </section>
     <section class="panel tablepanel" id="borrowers">
       <div class="tabletop"><div><h2>Borrower watchlist</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">Borrowers discovered by the Aave V3 Borrow-event indexer</span></div><input id="filter" class="search" type="search" placeholder="Filter wallet address…" aria-label="Filter wallet address"></div>
@@ -155,6 +166,40 @@
       document.getElementById('footerStatus').textContent='API unavailable · Read-only mode';
     }
   }
+  async function loadMarket(){
+    const rows=document.getElementById('marketRows');
+    const button=document.getElementById('refreshMarket');
+    button.disabled=true;
+    rows.innerHTML='<tr><td colspan="6">Loading live Aave market data…</td></tr>';
+    try{
+      const response=await fetch('/api/v1/market');
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.message||'Market request failed');
+      document.getElementById('marketSize').textContent=money(result.market.totalMarketSize);
+      document.getElementById('marketLiquidity').textContent=money(result.market.totalAvailableLiquidity);
+      document.getElementById('marketReserveCount').textContent=String((result.reserves||[]).length);
+      rows.replaceChildren();
+      for(const reserve of result.reserves||[]){
+        const tr=document.createElement('tr');
+        const cells=[
+          reserve.underlyingToken.symbol+' · '+reserve.underlyingToken.name,
+          money(reserve.size?.usd),
+          money(reserve.borrowInfo?.availableLiquidity?.usd),
+          reserve.supplyInfo?.liquidationBonus?.formatted??'—',
+          reserve.flashLoanEnabled?'Available':'Disabled',
+          reserve.isPaused?'Paused':reserve.isFrozen?'Frozen':'Active'
+        ];
+        for(const value of cells){const td=document.createElement('td');td.textContent=value;tr.append(td)}
+        rows.append(tr);
+      }
+      if(!result.reserves?.length)rows.innerHTML='<tr><td colspan="6">No reserve data returned.</td></tr>';
+      document.getElementById('marketFreshness').textContent='Source: AaveKit · '+result.freshness+' · Retrieved '+new Date(result.retrievedAt).toLocaleTimeString()+(result.cached?' · cached':'');
+    }catch(error){
+      rows.innerHTML='<tr><td colspan="6">Market data unavailable: '+esc(error instanceof Error?error.message:'Unknown error')+'</td></tr>';
+      document.getElementById('marketFreshness').textContent='Check AaveKit API availability and try again.';
+    }finally{button.disabled=false}
+  }
+  document.getElementById("refreshMarket").addEventListener("click",loadMarket);
   document.getElementById('borrowerRows').addEventListener('click',async(event)=>{
     const button=event.target.closest('button[data-user]');
     if(!button)return;
@@ -237,7 +282,7 @@
     }catch(error){output.textContent='Estimate unavailable: '+(error instanceof Error?error.message:'Unknown error')}
     finally{estimateButton.disabled=false}
   });
-  refresh();setInterval(refresh,60000);
+  refresh();loadMarket();setInterval(refresh,60000);setInterval(loadMarket,30000);
 </script>
 </body>
 </html>
