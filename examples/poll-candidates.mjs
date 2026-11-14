@@ -24,20 +24,29 @@ async function poll() {
     return true;
   });
 
-  for (const candidate of fresh) {
+  // Keep enrichment bounded so a burst of candidates does not overload AaveKit.
+  for (const candidate of fresh.slice(0, 10)) {
+    let positions = null;
+    try {
+      positions = await getJson("/api/v1/positions?user=" + encodeURIComponent(candidate.borrower));
+    } catch (error) {
+      console.error(JSON.stringify({ event: "position_enrichment_error", borrower: candidate.borrower, message: error instanceof Error ? error.message : String(error) }));
+    }
     // This is a read-only candidate notification. Do not submit transactions here.
     console.log(JSON.stringify({
       event: "liquidation_candidate",
       protocol: candidate.protocol,
       chainId: candidate.chainId,
       borrower: candidate.borrower,
-      healthFactor: Number(candidate.healthFactorWad) / 1e18,
+      scanHealthFactor: Number(candidate.healthFactorWad) / 1e18,
       totalDebtBase: candidate.totalDebtBase,
       observedBlock: candidate.observedBlock,
       observedAt: new Date().toISOString(),
+      positionEnrichment: positions,
       requiresPinnedBlockRevalidation: true
     }));
   }
+  if (fresh.length > 10) console.log(JSON.stringify({ event: "enrichment_deferred", count: fresh.length - 10 }));
 
   console.log(JSON.stringify({
     event: "poll_complete",
