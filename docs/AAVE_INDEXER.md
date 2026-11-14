@@ -23,15 +23,15 @@ The RPC endpoint is saved in the local `.env` file, which is ignored by Git. Nev
 ### Other operating systems
 
 1. Configure `ETHEREUM_RPC_URL` with an Ethereum Mainnet endpoint.
-2. The default `AAVE_INDEXER_START_BLOCK=16291127` is the documented Ethereum Aave V3 Pool deployment/start block. This is the historical scan start, not a recent transaction block.
+2. For a safe initial run, leave `AAVE_INDEXER_START_BLOCK` unset. The indexer seeds from the last `AAVE_SCAN_LOOKBACK_BLOCKS` (100 by default) confirmed blocks, then follows new blocks continuously. Set `AAVE_INDEXER_START_BLOCK=16291127` only to explicitly request a full-history backfill.
 3. Set `VAULTHUNTER_DB_PATH` to a persistent local path, for example `./data/vaulthunter.sqlite`.
 4. Run `npm run aave:index:once` to verify one pass, or `npm run aave:index` to keep indexing.
 
-The first backfill begins at block 16,291,127 and advances in small sequential ranges of at most 10 blocks. During backfill, the continuous runner proceeds to the next batch without the normal polling delay and defers account snapshots until it reaches the confirmed chain head. After catching up, it refreshes a rotating batch of borrowers and waits for the configured poll interval. A full historical backfill can still take many hours or days on free RPC plans; do not increase request concurrency to bypass provider limits. Use the one-shot command to test connectivity, then use the continuous runner for the backfill.
+With no explicit start block, the first pass seeds only the recent lookback window and then follows new blocks. This is the recommended hosted mode: it avoids silently launching a multi-year historical scan on a free RPC plan. An explicitly configured start block begins a historical backfill and advances in sequential ranges of at most 10 blocks; a full backfill from block 16,291,127 can require millions of RPC requests and may take a very long time or exhaust provider quotas. Do not increase request concurrency to bypass provider limits.
 
 ## Configuration
 
-- `AAVE_INDEXER_START_BLOCK`: default 16291127 for a fresh full-history index; set a later block only when intentionally creating a partial history.
+- `AAVE_INDEXER_START_BLOCK`: optional explicit starting block. If unset, safely seeds from the recent lookback window; set 16291127 only for a deliberate full-history backfill.
 - `AAVE_INDEXER_CONFIRMATIONS`: confirmation depth (default 12).
 - `AAVE_INDEXER_BATCH_BLOCKS`: blocks per `eth_getLogs` request (default 10, maximum 10).
 - `AAVE_INDEXER_POLL_INTERVAL_MS`: continuous polling interval (default 30 seconds).
