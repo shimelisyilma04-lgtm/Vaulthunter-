@@ -16,8 +16,8 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 Requires Node.js 20+ and an Ethereum Mainnet RPC endpoint.
 
 1. Copy `.env.example` to `.env`.
-2. Set `ETHEREUM_RPC_URL`.
-3. Set `AAVE_INDEXER_START_BLOCK` to the deployment block of the Aave V3 Ethereum Pool proxy. The indexer resolves the current Pool address from the official PoolAddressesProvider.
+2. Set `ETHEREUM_RPC_URL` to your Ethereum Mainnet RPC endpoint. Keep it private; do not commit `.env`.
+3. The default `AAVE_INDEXER_START_BLOCK=16291127` is the documented Ethereum Aave V3 Pool deployment/start block. Change it only if you intentionally want a later partial index.
 4. Run a one-shot pass or continuous indexer:
 
 ```bash
