@@ -33,7 +33,7 @@ npm run aave:index:once
 npm run aave:index
 ```
 
-The SQLite database defaults to `./data/vaulthunter.sqlite`. Use a persistent disk for hosted deployments. See [historical indexer setup](docs/AAVE_INDEXER.md).
+The local SQLite database defaults to `./data/vaulthunter.sqlite`. Hosted deployments can use PostgreSQL by setting `DATABASE_URL`; the indexer remains disabled until `AAVE_INDEXER_ENABLED=true` is explicitly set. For a $0 persistent development database, see [Neon](https://console.neon.tech/) and the [historical indexer setup](docs/AAVE_INDEXER.md).
 
 ## Read-only HTTP API
 
