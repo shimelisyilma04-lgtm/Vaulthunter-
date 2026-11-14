@@ -136,7 +136,10 @@
       const high=liveScan?0:hfs.filter(x=>x>=1&&x<1.05).length;
       const watch=liveScan?0:hfs.filter(x=>x>=1.05&&x<1.1).length;
       document.getElementById('apiBadge').textContent=liveScan?'LIVE RPC SCAN · READ ONLY':status.rpcConfigured?'RPC SET · SCAN UNAVAILABLE':'API ONLINE · RPC NOT SET';
-      document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(liveScan?'Live Ethereum scan completed.':status.rpcConfigured?'Ethereum RPC is configured, but the scan did not return.':'API is online; Ethereum RPC is not configured.')+'</b> '+(liveScan?'Results cover only recent Borrow events from blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':snap.length?'Showing indexed Aave borrower snapshots.':'No live borrower data is available yet.')+' This is monitoring data, not a promise of liquidation profit.</div>';
+      const indexerNote=!status.indexerEnabled
+        ?(status.durableStorageConfigured?'Historical indexing is switched off; enable it after reviewing the backfill plan.':'Historical indexing is paused until a persistent PostgreSQL DATABASE_URL is connected. The current Render Free SQLite filesystem is temporary.')
+        :'Historical indexing is enabled with '+(status.storageBackend||'configured storage')+'.';
+      document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(liveScan?'Live Ethereum scan completed.':status.rpcConfigured?'Ethereum RPC is configured, but the scan did not return.':'API is online; Ethereum RPC is not configured.')+'</b> '+(liveScan?'Results cover only recent Borrow events from blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':snap.length?'Showing indexed Aave borrower snapshots.':'No live borrower data is available yet.')+' '+indexerNote+' This is monitoring data, not a promise of liquidation profit.</div>';
       document.getElementById('metricBorrowers').textContent=(liveScan?liveScan.borrowersDiscovered:status.counts.knownBorrowers).toLocaleString();
       document.getElementById('metricAtRisk').textContent=(liveScan?liveScan.accountsChecked:snap.length).toLocaleString();
       document.getElementById('metricLiquidatable').textContent=(liveScan?liveCandidates.length:critical).toLocaleString();
