@@ -13,7 +13,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 
 ## Dashboard preview
 
-A responsive static dashboard preview is available in `dashboard/index.html`. It currently uses clearly labeled illustrative sample data; it is not connected to the SQLite indexer or a live API. To publish it, merge the dashboard workflow and set the repository's Pages source to **GitHub Actions** in Settings → Pages. The deployment workflow then publishes the dashboard automatically. No wallet connection or transaction execution is included.
+A responsive static dashboard preview is available in `dashboard/index.html`. It currently uses clearly labeled illustrative sample data; it is not connected to the SQLite indexer or a live API. The repository is private, so publish the preview through Render after connecting the GitHub repository in Render Account Settings → Account Security → Git Deployment Credentials. Create a Static Site using branch `main`, publish directory `dashboard`, and an empty build command (or `echo ready`). No wallet connection or transaction execution is included.
 
 ## Run the Aave historical indexer
 
