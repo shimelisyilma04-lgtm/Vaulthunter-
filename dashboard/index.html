@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>VaultHunter — Liquidation Intelligence</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090e1b;--panel:#10182a;--panel2:#141f34;--line:#26344d;--muted:#91a0b8;--text:#edf3ff;--cyan:#55d6c2;--blue:#7aa7ff;--amber:#f6c76b;--red:#ff7885;--green:#74d6a5}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(900px 500px at 70% -10%,#1c3154 0%,transparent 60%),var(--bg);color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+    button,input{font:inherit}.shell{display:grid;grid-template-columns:236px 1fr;min-height:100vh}.sidebar{border-right:1px solid var(--line);padding:26px 18px;background:#0b1221}.brand{display:flex;align-items:center;gap:11px;font-size:18px;font-weight:750;letter-spacing:-.5px}.logo{width:34px;height:34px;border-radius:11px;background:linear-gradient(145deg,#63e0c9,#387de8);display:grid;place-items:center;color:#06131d;font-weight:900;font-size:17px}.subbrand{color:var(--muted);font-size:11px;margin:4px 0 34px 45px}.navlabel{font-size:10px;letter-spacing:1.5px;color:#71819b;margin:22px 10px 9px}.nav a{display:flex;gap:12px;align-items:center;text-decoration:none;color:#aebbd0;padding:11px 12px;border-radius:10px;margin:3px 0}.nav a.active{background:#1b2b43;color:#fff;box-shadow:inset 2px 0 var(--cyan)}.nav .ico{width:18px;text-align:center;color:var(--cyan)}.sidebar-note{margin-top:44px;padding:13px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:11px}.sidebar-note strong{display:block;color:var(--text);font-size:12px;margin-bottom:5px}.main{padding:28px clamp(18px,3vw,42px) 44px;max-width:1500px;width:100%;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:27px}.eyebrow{color:var(--cyan);font-size:10px;letter-spacing:1.7px;font-weight:750}.top h1{font-size:27px;letter-spacing:-1px;margin:5px 0 0}.topright{display:flex;align-items:center;gap:10px}.network{border:1px solid var(--line);border-radius:9px;padding:8px 11px;color:#c5d1e4;font-size:12px}.demo{border:1px solid #735a2b;background:#302719;color:#ffd98c;border-radius:9px;padding:8px 11px;font-size:11px;font-weight:700;letter-spacing:.3px}.intro{display:flex;align-items:flex-start;gap:12px;padding:13px 15px;border:1px solid #63502d;background:#211d18;border-radius:12px;color:#d9c8a4;margin-bottom:20px;font-size:12px}.intro b{color:#ffe0a1}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}.card,.panel{background:linear-gradient(160deg,#121d31,#0f1728);border:1px solid var(--line);border-radius:15px}.card{padding:17px}.cardhead{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px}.cardicon{width:30px;height:30px;display:grid;place-items:center;background:#1a2a40;border-radius:9px;color:var(--cyan)}.metric{font-size:27px;font-weight:750;letter-spacing:-1px;margin:13px 0 4px}.hint{font-size:11px;color:var(--muted)}.positive{color:var(--green)}.middle{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(260px,.85fr);gap:15px;margin-bottom:16px}.panel{padding:19px}.paneltitle{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:18px}.paneltitle h2{font-size:14px;margin:0}.paneltitle span{font-size:11px;color:var(--muted)}.chart{height:190px;width:100%;display:block}.chartlabels{display:flex;justify-content:space-between;color:#71819b;font-size:10px;margin-top:2px}.riskrow{display:flex;justify-content:space-between;align-items:center;margin:13px 0;color:#b6c3d8;font-size:12px}.bar{height:7px;border-radius:9px;background:#26334a;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;border-radius:9px}.risknum{font-variant-numeric:tabular-nums;color:#fff}.signal{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;margin-top:17px}.dot{width:7px;height:7px;border-radius:50%;background:var(--green)}.tablepanel{padding:0;overflow:hidden}.tabletop{padding:18px 19px 13px;display:flex;align-items:center;justify-content:space-between;gap:12px}.tabletop h2{font-size:14px;margin:0}.search{background:#0b1323;border:1px solid var(--line);border-radius:9px;padding:8px 11px;color:var(--text);width:190px;outline:none}.search:focus{border-color:var(--cyan)}table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap}th{font-size:10px;letter-spacing:.8px;color:#8191aa;font-weight:650;background:#0c1424;padding:11px 19px}td{padding:13px 19px;border-top:1px solid #202d43;font-size:12px;color:#cbd6e8}.address{font-family:ui-monospace,SFMono-Regular,monospace;color:#9fc3ff}.pill{border-radius:30px;padding:4px 8px;font-size:10px;font-weight:700}.high{background:#3a2029;color:#ff9ba5}.watch{background:#392f1e;color:#f6d18a}.safe{background:#18342f;color:#86e1bd}.footer{display:flex;justify-content:space-between;gap:12px;color:#72829a;font-size:10px;margin-top:17px}.mobilemenu{display:none}
+    @media(max-width:900px){.shell{grid-template-columns:1fr}.sidebar{display:none}.mobilemenu{display:inline-block}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.middle{grid-template-columns:1fr}.top{align-items:flex-start}.topright{flex-wrap:wrap;justify-content:flex-end}}
+    @media(max-width:560px){.main{padding:20px 13px 30px}.top{display:block}.topright{justify-content:flex-start;margin-top:13px}.top h1{font-size:23px}.cards{gap:9px}.card{padding:13px}.metric{font-size:23px}.panel{padding:14px}.tabletop{align-items:flex-start;flex-direction:column}.search{width:100%}.tablewrap{overflow-x:auto}.footer{flex-direction:column}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">V</div>VaultHunter</div>
+    <div class="subbrand">DEFI LIQUIDATION INTELLIGENCE</div>
+    <div class="navlabel">WORKSPACE</div>
+    <nav class="nav">
+      <a class="active" href="#overview"><span class="ico">◫</span>Overview</a>
+      <a href="#borrowers"><span class="ico">◎</span>Borrowers</a>
+      <a href="#risk"><span class="ico">⌁</span>Risk monitor</a>
+      <a href="#activity"><span class="ico">◷</span>Event activity</a>
+    </nav>
+    <div class="navlabel">SYSTEM</div>
+    <nav class="nav">
+      <a href="#status"><span class="ico">◉</span>Indexer status</a>
+      <a href="https://github.com/shimelisyilma04-lgtm/Vaulthunter-"><span class="ico">⌘</span>Source code ↗</a>
+    </nav>
+    <div class="sidebar-note"><strong>Read-only mode</strong>No wallet connection, signing, or transaction execution is enabled. This preview uses illustrative data.</div>
+  </aside>
+  <main class="main" id="overview">
+    <header class="top">
+      <div><div class="eyebrow">AAVE V3 · ETHEREUM MAINNET</div><h1>Liquidation intelligence</h1></div>
+      <div class="topright"><span class="network">◉ Ethereum</span><span class="demo">DEMO PREVIEW · SAMPLE DATA</span></div>
+    </header>
+    <div class="intro"><span>ⓘ</span><div><b>This is a visual preview, not a live feed.</b> The figures and wallet addresses below are fictional examples to demonstrate the dashboard. Live borrower data will appear only after the indexer is running and connected to a real data-serving API.</div></div>
+    <section class="cards">
+      <article class="card"><div class="cardhead">Borrowers indexed <span class="cardicon">◎</span></div><div class="metric">12,486</div><div class="hint">Illustrative historical total</div></article>
+      <article class="card"><div class="cardhead">At-risk accounts <span class="cardicon">⌁</span></div><div class="metric">38</div><div class="hint"><span class="positive">●</span> Sample health factor below 1.10</div></article>
+      <article class="card"><div class="cardhead">Liquidatable now <span class="cardicon">⚑</span></div><div class="metric">4</div><div class="hint">Demo only · requires on-chain recheck</div></article>
+      <article class="card"><div class="cardhead">Indexer checkpoint <span class="cardicon">◷</span></div><div class="metric" style="font-size:22px">18.42M</div><div class="hint">Example block · not a real checkpoint</div></article>
+    </section>
+    <section class="middle">
+      <article class="panel" id="activity">
+        <div class="paneltitle"><h2>Borrow activity</h2><span>Illustrative · last 7 days</span></div>
+        <svg class="chart" viewBox="0 0 680 190" role="img" aria-label="Illustrative borrow activity line chart">
+          <defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#55d6c2" stop-opacity=".25"/><stop offset="1" stop-color="#55d6c2" stop-opacity="0"/></linearGradient></defs>
+          <g stroke="#26344d" stroke-width="1"><path d="M42 25H660M42 65H660M42 105H660M42 145H660"/></g>
+          <g fill="#71819b" font-size="10"><text x="4" y="28">120</text><text x="10" y="68">80</text><text x="10" y="108">40</text><text x="16" y="148">0</text></g>
+          <path d="M42 132 L130 105 L218 116 L306 72 L394 88 L482 47 L570 66 L660 30 L660 150 L42 150Z" fill="url(#fill)"/>
+          <path d="M42 132 L130 105 L218 116 L306 72 L394 88 L482 47 L570 66 L660 30" fill="none" stroke="#55d6c2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <g fill="#55d6c2" stroke="#0e1728" stroke-width="3"><circle cx="42" cy="132" r="5"/><circle cx="130" cy="105" r="5"/><circle cx="218" cy="116" r="5"/><circle cx="306" cy="72" r="5"/><circle cx="394" cy="88" r="5"/><circle cx="482" cy="47" r="5"/><circle cx="570" cy="66" r="5"/><circle cx="660" cy="30" r="5"/></g>
+        </svg>
+        <div class="chartlabels"><span>Nov 08</span><span>Nov 09</span><span>Nov 10</span><span>Nov 11</span><span>Nov 12</span><span>Nov 13</span><span>Nov 14</span></div>
+      </article>
+      <article class="panel" id="risk">
+        <div class="paneltitle"><h2>Risk distribution</h2><span>Demo accounts</span></div>
+        <div class="riskrow"><span>Critical · HF below 1.00</span><b class="risknum">4</b></div><div class="bar"><i style="width:12%;background:var(--red)"></i></div>
+        <div class="riskrow"><span>High · HF 1.00–1.05</span><b class="risknum">11</b></div><div class="bar"><i style="width:32%;background:var(--amber)"></i></div>
+        <div class="riskrow"><span>Watch · HF 1.05–1.10</span><b class="risknum">23</b></div><div class="bar"><i style="width:66%;background:var(--blue)"></i></div>
+        <div class="signal"><span class="dot"></span>Risk bands are illustrative; health factors change with market prices.</div>
+      </article>
+    </section>
+    <section class="panel tablepanel" id="borrowers">
+      <div class="tabletop"><div><h2>Borrower watchlist</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">Example accounts · not real wallet data</span></div><input id="filter" class="search" type="search" placeholder="Filter wallet address…" aria-label="Filter wallet address"></div>
+      <div class="tablewrap"><table><thead><tr><th>ACCOUNT</th><th>HEALTH FACTOR</th><th>COLLATERAL</th><th>DEBT</th><th>RISK</th></tr></thead><tbody id="borrowerRows">
+        <tr><td class="address">0x71C7…9A42</td><td>0.982</td><td>$182,400</td><td>$146,200</td><td><span class="pill high">Critical</span></td></tr>
+        <tr><td class="address">0xA20D…1F83</td><td>1.018</td><td>$94,800</td><td>$72,100</td><td><span class="pill high">High</span></td></tr>
+        <tr><td class="address">0x3B9E…C210</td><td>1.043</td><td>$251,000</td><td>$198,500</td><td><span class="pill watch">High</span></td></tr>
+        <tr><td class="address">0xF6D2…8B11</td><td>1.076</td><td>$68,300</td><td>$51,900</td><td><span class="pill watch">Watch</span></td></tr>
+        <tr><td class="address">0x91AA…D50C</td><td>1.124</td><td>$410,700</td><td>$302,000</td><td><span class="pill safe">Lower</span></td></tr>
+      </tbody></table></div>
+    </section>
+    <div class="footer" id="status"><span>VaultHunter · Experimental read-only monitoring interface</span><span>Indexer/API connection: not configured · No transactions submitted</span></div>
+  </main>
+</div>
+<script>
+  const filter=document.getElementById('filter');
+  filter.addEventListener('input',()=>{const q=filter.value.toLowerCase();document.querySelectorAll('#borrowerRows tr').forEach(row=>{row.hidden=!row.textContent.toLowerCase().includes(q)})});
+</script>
+</body>
+</html>
