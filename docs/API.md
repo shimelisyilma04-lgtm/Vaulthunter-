@@ -11,6 +11,7 @@ All endpoints are read-only. The service does not accept wallet credentials, sig
 | GET | `/healthz` | Process health |
 | GET | `/api/v1/status` | RPC configuration, indexer state, checkpoint, and stored counts |
 | GET | `/api/v1/scan?lookbackBlocks=100` | Scan a bounded recent Borrow-event window and read current account health |
+| GET | `/api/v1/positions?user=0x...` | Enrich a known Ethereum borrower with AaveKit supply, borrow, and account-state data |
 | GET | `/api/v1/borrowers?limit=100` | Stored borrower snapshots |
 | GET | `/api/v1/candidates?limit=100` | Stored snapshots flagged below health factor 1 |
 | GET | `/api/v1/events?limit=50` | Recent indexed Borrow events |
@@ -21,6 +22,10 @@ All endpoints are read-only. The service does not accept wallet credentials, sig
 The scanner discovers addresses from recent Aave V3 Pool `Borrow` events, then reads current account data. It is not an exhaustive market-wide borrower directory: borrowers with no Borrow event in the selected block window are not discovered. The scan is bounded to 1–10,000 blocks and internally splits log queries into small sequential ranges to respect provider limits. Results are cached briefly.
 
 A health factor below 1 means the position is eligible by the health-factor test at the observation time. It does not prove that a specific debt/collateral pair can be liquidated or that execution is profitable.
+
+## Position enrichment endpoint
+
+Use `GET /api/v1/positions?user=0x...` to fetch the selected user's supplied and borrowed assets, token amounts, USD values, and Aave account summary through the official AaveKit GraphQL API. This is useful for bots that already have a candidate address and need reserve-level context. It does not enumerate every borrower in the market. AaveKit responses may be cached and are not guaranteed to match the RPC scan's block; the API marks this as `provider-indexed-not-pinned` and returns a warning.
 
 ## Profitability screening endpoint
 
@@ -54,7 +59,7 @@ The response includes maximum estimated repayment, collateral seized, gross bonu
 
 1. Poll `/api/v1/status` and require a healthy service and configured RPC.
 2. Call `/api/v1/scan` with a conservative block window; treat the result as a candidate feed, not a complete market scan.
-3. Fetch each borrower's account data and each relevant reserve's configuration/prices at the same pinned block using a trusted market adapter.
+3. Enrich a known borrower with `/api/v1/positions?user=...`, then independently fetch the borrower's account data and each relevant reserve's configuration/prices at the same pinned block using a trusted market adapter.
 4. Obtain a real executable DEX route quote and flash-loan terms. Do not use the estimator's default zero fees as evidence that a route is free.
 5. Call `/api/v1/estimate` with the complete same-block values. Ignore any result with missing, stale, or mismatched inputs.
 6. Before any future execution, simulate the exact liquidation transaction against a fork or supported simulation service, revalidate health factor and reserve liquidity, and apply independent profit/risk thresholds.
