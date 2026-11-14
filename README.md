@@ -41,7 +41,7 @@ The deployed service exposes:
 
 - `GET /healthz` — process health.
 - `GET /api/v1/status` — RPC configuration, indexer state, checkpoint, and stored counts.
-- `GET /api/v1/scan?lookbackBlocks=100` — bounded recent Borrow-event scan (1–10,000 blocks; requires a valid Ethereum Mainnet RPC URL).
+- `GET /api/v1/scan?lookbackBlocks=100` — bounded recent Borrow-event scan (1–500 blocks; requires a valid Ethereum Mainnet RPC URL).
 - `GET /api/v1/positions?user=0x...` — enrich a known borrower with AaveKit supply/borrow positions and account state (indexed data, not pinned to the RPC scan block).
 - `GET /api/v1/borrowers?limit=200` — stored borrower snapshots.
 - `GET /api/v1/candidates?limit=100` — stored snapshots currently flagged below HF 1.
