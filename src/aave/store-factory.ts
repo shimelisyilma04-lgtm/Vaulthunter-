@@ -36,6 +36,10 @@ export class AaveStore implements AaveStorePort {
   async listBorrowers(chainId:number,poolAddress:string,limit=100):Promise<BorrowerRecord[]>{
     return this.postgres ? this.postgres.listBorrowers(chainId,poolAddress,limit) : this.sqlite!.listBorrowers(chainId,poolAddress,limit);
   }
+  async upsertDiscoveredBorrowers(chainId:number,poolAddress:string,addresses:string[]):Promise<void>{
+    if(this.postgres)return this.postgres.upsertDiscoveredBorrowers(chainId,poolAddress,addresses);
+    this.sqlite!.upsertDiscoveredBorrowers(chainId,poolAddress,addresses);
+  }
   async saveSnapshot(snapshot:BorrowerSnapshot):Promise<void>{
     if(this.postgres)return this.postgres.saveSnapshot(snapshot);
     this.sqlite!.saveSnapshot(snapshot);
