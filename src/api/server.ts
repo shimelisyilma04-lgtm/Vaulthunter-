@@ -8,6 +8,7 @@ import { estimateAaveV3Liquidation } from "../domain/profitability.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
 import { quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
+import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -77,6 +78,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           indexerCoverage: config.AAVE_INDEXER_ENABLED ? "recent-window-plus-live-tail" : "disabled",
           historicalCoverageComplete: false,
           dexQuoteProvider: config.ETHEREUM_RPC_URL ? "uniswap-v3-quoter-v2" : "not-configured",
+          historicalDiscoveryProvider: config.AAVE_SUBGRAPH_API_KEY ? "aave-protocol-subgraph-v3" : "not-configured",
+          historicalDiscoveryConfigured: Boolean(config.AAVE_SUBGRAPH_API_KEY),
           forkSimulationConfigured: false,
           checkpoint: stats.checkpoint,
           counts: {
@@ -150,6 +153,24 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         return;
       }
 
+
+      if (url.pathname === "/api/v1/discovery/subgraph") {
+        if (!config.AAVE_SUBGRAPH_API_KEY) {
+          send(res, 503, {
+            error: "subgraph_not_configured",
+            message: "Set AAVE_SUBGRAPH_API_KEY in the Render environment to enable Aave official subgraph borrower discovery. Do not send the key in chat.",
+            source: "aave-protocol-subgraph-v3"
+          });
+          return;
+        }
+        try {
+          const discovery = await discoverAaveBorrowersFromSubgraph(config.AAVE_SUBGRAPH_API_KEY);
+          send(res, 200, discovery);
+        } catch (error) {
+          send(res, 502, { error: "subgraph_unavailable", message: error instanceof Error ? error.message : "Aave subgraph query failed" });
+        }
+        return;
+      }
       if (url.pathname === "/api/v1/risk") {
         const rows = await store.listBorrowerSnapshots(CHAIN_ID, POOL, limitFrom(url), false);
         const now = Date.now();
