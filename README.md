@@ -11,6 +11,10 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Current health-factor snapshots for indexed borrowers.
 - No wallet, private key, transaction signing, or transaction submission.
 
+## Dashboard preview
+
+A responsive static dashboard preview is available in `dashboard/index.html`. It currently uses clearly labeled illustrative sample data; it is not connected to the SQLite indexer or a live API. To publish it, merge the dashboard workflow and set the repository's Pages source to **GitHub Actions** in Settings → Pages. The deployment workflow then publishes the dashboard automatically. No wallet connection or transaction execution is included.
+
 ## Run the Aave historical indexer
 
 Requires Node.js 20+ and an Ethereum Mainnet RPC endpoint. On Windows, run `powershell -ExecutionPolicy Bypass -File .\\scripts\\start-indexer.ps1` for one pass, or add `-Continuous` to keep indexing while your computer is on. The script creates `.env` and asks for the RPC endpoint if needed.
