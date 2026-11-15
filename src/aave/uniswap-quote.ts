@@ -100,7 +100,7 @@ export async function quoteUniswapV3BestExactInput(
   const tokenIn = getAddress(input.tokenIn);
   const tokenOut = getAddress(input.tokenOut);
   if (tokenIn === tokenOut) throw new Error("tokenIn and tokenOut must be different addresses");
-  if (!/^\\d+$/.test(input.amountIn) || BigInt(input.amountIn) <= 0n) {
+  if (!/^\d+$/.test(input.amountIn) || BigInt(input.amountIn) <= 0n) {
     throw new Error("amountIn must be a positive integer in the input token's smallest units");
   }
 
