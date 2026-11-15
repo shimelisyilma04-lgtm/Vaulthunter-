@@ -349,6 +349,88 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         }
         return;
       }
+      if (url.pathname === "/api/v1/opportunities/estimate") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for Aave liquidation screening." });
+          return;
+        }
+        const user = url.searchParams.get("user")?.trim() ?? "";
+        const gasCostRaw = url.searchParams.get("gasCostUsd");
+        if (!/^0x[0-9a-fA-F]{40}$/.test(user) || gasCostRaw === null ||
+            gasCostRaw.trim() === "" || !Number.isFinite(Number(gasCostRaw)) || Number(gasCostRaw) < 0) {
+          send(res, 400, { error: "invalid_estimate_parameters", message: "Provide a valid user address and non-negative gasCostUsd." });
+          return;
+        }
+        const optionalKeys = ["flashLoanFeeBps", "swapFeeBps", "slippageBps", "safetyBufferBps"] as const;
+        const optional: Record<string, number> = {};
+        for (const key of optionalKeys) {
+          const raw = url.searchParams.get(key);
+          if (raw !== null) {
+            if (!/^[0-9]{1,4}$/.test(raw) || Number(raw) >= 10000) {
+              send(res, 400, { error: "invalid_estimate_parameters", message: key + " must be an integer from 0 to 9999." });
+              return;
+            }
+            optional[key] = Number(raw);
+          }
+        }
+        try {
+          const position = await fetchOnchainAavePositions(config.ETHEREUM_RPC_URL, user, config.AAVE_INDEXER_CONFIRMATIONS);
+          if (position.baseCurrency.toLowerCase() !== "0x0000000000000000000000000000000000000000") {
+            send(res, 409, { error: "unsupported_base_currency", message: "Automatic USD estimates are disabled because this Aave market does not report USD as its base currency.", user: position.user, baseCurrency: position.baseCurrency });
+            return;
+          }
+          if (!position.eModeAwareCalculationReady) {
+            send(res, 409, { error: "emode_price_source_unresolved", message: "This user's eMode category overrides the price source. The category price feed is not yet safely normalized into the Aave base currency, so profitability estimates are withheld.", user: position.user, eModeCategoryData: position.eModeCategoryData });
+            return;
+          }
+          const unit = Number(BigInt(position.baseCurrencyUnit));
+          const toUsd = (value: string) => Number(BigInt(value)) / unit;
+          const estimates = position.screeningPairs.map((pair) => {
+            const effectiveBonusBps = Number(BigInt(pair.effectiveLiquidationBonus)) - 10000;
+            const protocolFeeBps = Number(BigInt(pair.liquidationProtocolFee));
+            const estimate = estimateAaveV3Liquidation({
+              healthFactor: position.healthFactor ?? 0,
+              totalDebtUsd: toUsd(position.totalDebtBase),
+              debtReserveUsd: toUsd(pair.debtValueBase),
+              collateralReserveUsd: toUsd(pair.collateralValueBase),
+              collateralAvailableUsd: toUsd(pair.collateralValueBase),
+              liquidationBonusBps: effectiveBonusBps,
+              gasCostUsd: Number(gasCostRaw),
+              flashLoanFeeBps: optional.flashLoanFeeBps ?? 0,
+              swapFeeBps: optional.swapFeeBps ?? 0,
+              slippageBps: optional.slippageBps ?? 0,
+              protocolFeeBps,
+              safetyBufferBps: optional.safetyBufferBps ?? 500
+            });
+            return {
+              collateralAsset: pair.collateralAsset,
+              collateralSymbol: pair.collateralSymbol,
+              debtAsset: pair.debtAsset,
+              debtSymbol: pair.debtSymbol,
+              eModeCompatible: pair.eModeCompatible,
+              effectiveLiquidationBonusBps: effectiveBonusBps,
+              protocolFeeBps,
+              ...estimate
+            };
+          });
+          send(res, 200, {
+            user: position.user,
+            observedBlock: position.observedBlock,
+            healthFactor: position.healthFactor,
+            userEModeCategory: position.userEModeCategory,
+            eModeAwareCalculationReady: position.eModeAwareCalculationReady,
+            baseCurrency: position.baseCurrency,
+            source: "aave-v3-confirmed-block-reserve-and-oracle-data",
+            count: estimates.length,
+            estimates,
+            executionEnabled: false,
+            warning: "These estimates use confirmed-block Aave reserve balances, oracle values, reserve eMode membership, and category liquidation bonus when safely applicable. They remain screening estimates: exact liquidation close-factor edge cases, minimum residual debt, flash-loan availability, live route, gas and MEV must be validated by complete fork simulation."
+          });
+        } catch (error) {
+          send(res, 502, { error: "opportunity_estimate_failed", message: error instanceof Error ? error.message : "Aave opportunity estimate failed" });
+        }
+        return;
+      }
       if (url.pathname === "/api/v1/opportunities") {
         if (!config.ETHEREUM_RPC_URL) {
           send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for live opportunity revalidation." });
