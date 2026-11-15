@@ -17,16 +17,16 @@ const POOL_ABI = [
   "function getUserEMode(address user) view returns (uint256)"
 ] as const;
 
-interface ReserveToken {
-  symbol: string;
-  tokenAddress: string;
-}
-
 const ORACLE_ABI = [
   "function getAssetPrice(address asset) view returns (uint256)",
   "function BASE_CURRENCY() view returns (address)",
   "function BASE_CURRENCY_UNIT() view returns (uint256)"
 ] as const;
+
+interface ReserveToken {
+  symbol: string;
+  tokenAddress: string;
+}
 
 interface ReservePosition {
   asset: string;
@@ -41,6 +41,9 @@ interface ReservePosition {
   liquidationBonus: string;
   isActive: boolean;
   isFrozen: boolean;
+  oraclePriceBase: string;
+  suppliedValueBase: string;
+  debtValueBase: string;
 }
 
 export function buildScreeningPairs(
@@ -50,9 +53,13 @@ export function buildScreeningPairs(
   collateralAsset: string;
   collateralSymbol: string;
   collateralBalance: string;
+  collateralDecimals: number;
+  collateralValueBase: string;
   debtAsset: string;
   debtSymbol: string;
   debtBalance: string;
+  debtDecimals: number;
+  debtValueBase: string;
   liquidationBonus: string;
 }> {
   if (BigInt(healthFactorWad) >= WAD) return [];
@@ -63,14 +70,18 @@ export function buildScreeningPairs(
   const pairs = [];
   for (const supply of collateral) {
     for (const debt of debts) {
-      // Same-asset supply/debt combinations are not excluded by Aave V3's liquidation logic.
+      // Same-asset combinations are retained; protocol-level validation decides feasibility.
       pairs.push({
         collateralAsset: supply.asset,
         collateralSymbol: supply.symbol,
         collateralBalance: supply.suppliedBalance,
+        collateralDecimals: supply.decimals,
+        collateralValueBase: supply.suppliedValueBase,
         debtAsset: debt.asset,
         debtSymbol: debt.symbol,
         debtBalance: debt.totalDebt,
+        debtDecimals: debt.decimals,
+        debtValueBase: debt.debtValueBase,
         liquidationBonus: supply.liquidationBonus
       });
     }
@@ -79,8 +90,7 @@ export function buildScreeningPairs(
 }
 
 /**
- * Fetches per-reserve balances from Aave's Ethereum V3 Pool Data Provider.
- * All calls use one confirmed block so balances and health factor are coherent.
+ * Fetches reserve balances and Aave oracle prices at one confirmed Ethereum block.
  * This enriches known borrowers; it is not a global borrower-discovery mechanism.
  */
 export async function fetchOnchainAavePositions(
@@ -94,6 +104,9 @@ export async function fetchOnchainAavePositions(
   observedBlock: number;
   healthFactorWad: string;
   healthFactor: number | null;
+  userEModeCategory: number;
+  baseCurrency: string;
+  baseCurrencyUnit: string;
   totalCollateralBase: string;
   totalDebtBase: string;
   liquidationEligibleAtBlock: boolean;
@@ -125,6 +138,7 @@ export async function fetchOnchainAavePositions(
     const account = accountRaw as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
     const baseCurrencyUnit = BigInt(baseUnitRaw as bigint);
     if (baseCurrencyUnit <= 0n) throw new Error("Aave oracle returned an invalid base-currency unit.");
+
     const reserves: ReservePosition[] = [];
     for (let offset = 0; offset < tokens.length; offset += 5) {
       const batch = tokens.slice(offset, offset + 5);
@@ -142,6 +156,13 @@ export async function fetchOnchainAavePositions(
         const variableDebt = position[2];
         const totalDebt = stableDebt + variableDebt;
         if (suppliedBalance === 0n && totalDebt === 0n) return null;
+
+        const decimals = Number(reserveConfig[0]);
+        const oraclePriceBase = BigInt(priceRaw as bigint);
+        const assetUnit = 10n ** BigInt(decimals);
+        const suppliedValueBase = suppliedBalance * oraclePriceBase / assetUnit;
+        const debtValueBase = totalDebt * oraclePriceBase / assetUnit;
+
         return {
           asset,
           symbol: token.symbol,
@@ -154,12 +175,17 @@ export async function fetchOnchainAavePositions(
           liquidationThreshold: reserveConfig[2].toString(),
           liquidationBonus: reserveConfig[3].toString(),
           isActive: reserveConfig[8],
-          isFrozen: reserveConfig[9]
+          isFrozen: reserveConfig[9],
+          oraclePriceBase: oraclePriceBase.toString(),
+          suppliedValueBase: suppliedValueBase.toString(),
+          debtValueBase: debtValueBase.toString()
         } satisfies ReservePosition;
       }));
       reserves.push(...rows.filter((row): row is ReservePosition => row !== null));
     }
-    const healthFactorWad = account[5].toString();\n    const userEModeCategory = Number(eModeRaw as bigint);
+
+    const healthFactorWad = account[5].toString();
+    const userEModeCategory = Number(eModeRaw as bigint);
     const liquidationEligibleAtBlock = account[1] > 0n && account[5] > 0n && account[5] < WAD;
     return {
       user,
@@ -168,6 +194,9 @@ export async function fetchOnchainAavePositions(
       observedBlock,
       healthFactorWad,
       healthFactor: account[5] === (2n ** 256n - 1n) ? null : Number(account[5]) / 1e18,
+      userEModeCategory,
+      baseCurrency: getAddress(baseCurrencyRaw as string),
+      baseCurrencyUnit: baseCurrencyUnit.toString(),
       totalCollateralBase: account[0].toString(),
       totalDebtBase: account[1].toString(),
       liquidationEligibleAtBlock,
