@@ -75,4 +75,16 @@ describe("buildScreeningPairs", () => {
     ];
     expect(buildScreeningPairs(sameAsset, "900000000000000000")).toHaveLength(1);
   });
+  it("uses the user's eMode category bonus only when both reserves match the category", () => {
+    const categoryRows = reserves.map((row) => ({ ...row, eModeCategory: 1 }));
+    const pairs = buildScreeningPairs(categoryRows, "900000000000000000", 1, "10750");
+    expect(pairs[0]?.eModeCompatible).toBe(true);
+    expect(pairs[0]?.effectiveLiquidationBonus).toBe("10750");
+
+    categoryRows[1]!.eModeCategory = 0;
+    const mismatched = buildScreeningPairs(categoryRows, "900000000000000000", 1, "10750");
+    expect(mismatched[0]?.eModeCompatible).toBe(false);
+    expect(mismatched[0]?.effectiveLiquidationBonus).toBe("10500");
+  });
+
 });
