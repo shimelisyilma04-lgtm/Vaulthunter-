@@ -14,7 +14,8 @@ const DATA_PROVIDER_ABI = [
 
 const POOL_ABI = [
   "function getUserAccountData(address user) view returns (uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor)",
-  "function getUserEMode(address user) view returns (uint256)"
+  "function getUserEMode(address user) view returns (uint256)",
+  "function getEModeCategoryData(uint8 id) view returns (uint16 ltv,uint16 liquidationThreshold,uint16 liquidationBonus,address priceSource,string label)"
 ] as const;
 
 const ORACLE_ABI = [
@@ -105,6 +106,8 @@ export async function fetchOnchainAavePositions(
   healthFactorWad: string;
   healthFactor: number | null;
   userEModeCategory: number;
+  eModeCategoryData: { ltv: string; liquidationThreshold: string; liquidationBonus: string; priceSource: string; label: string } | null;
+  eModeAwareCalculationReady: boolean;
   baseCurrency: string;
   baseCurrencyUnit: string;
   totalCollateralBase: string;
@@ -186,6 +189,23 @@ export async function fetchOnchainAavePositions(
 
     const healthFactorWad = account[5].toString();
     const userEModeCategory = Number(eModeRaw as bigint);
+    let eModeCategoryData: {
+      ltv: string; liquidationThreshold: string; liquidationBonus: string;
+      priceSource: string; label: string;
+    } | null = null;
+    if (userEModeCategory > 0) {
+      const categoryRaw = await pool.getFunction("getEModeCategoryData").staticCall(
+        userEModeCategory, { blockTag: observedBlock }
+      ) as readonly [bigint, bigint, bigint, string, string];
+      eModeCategoryData = {
+        ltv: categoryRaw[0].toString(),
+        liquidationThreshold: categoryRaw[1].toString(),
+        liquidationBonus: categoryRaw[2].toString(),
+        priceSource: getAddress(categoryRaw[3]),
+        label: categoryRaw[4]
+      };
+    }
+    const eModeAwareCalculationReady = userEModeCategory === 0;
     const liquidationEligibleAtBlock = account[1] > 0n && account[5] > 0n && account[5] < WAD;
     return {
       user,
@@ -195,6 +215,8 @@ export async function fetchOnchainAavePositions(
       healthFactorWad,
       healthFactor: account[5] === (2n ** 256n - 1n) ? null : Number(account[5]) / 1e18,
       userEModeCategory,
+      eModeCategoryData,
+      eModeAwareCalculationReady,
       baseCurrency: getAddress(baseCurrencyRaw as string),
       baseCurrencyUnit: baseCurrencyUnit.toString(),
       totalCollateralBase: account[0].toString(),
@@ -203,7 +225,7 @@ export async function fetchOnchainAavePositions(
       reserves,
       screeningPairs: buildScreeningPairs(reserves, healthFactorWad),
       source: "aave-v3-protocol-data-provider",
-      warning: "Balances and Aave oracle prices are read at one confirmed block. Base-currency values are not automatically USD unless the market base currency is USD. A non-zero eMode category can override price sources and liquidation parameters; this response does not resolve category-specific liquidation rules. Pairs are screening combinations only, not proof a liquidation call will succeed or be profitable. Close factor, protocol fee, flash-loan availability, DEX route, gas and MEV still require transaction-level validation. Borrower discovery remains limited to addresses already known to VaultHunter."
+      warning: "Balances and Aave oracle prices are read at one confirmed block. Base-currency values are not automatically USD unless the market base currency is USD. A non-zero eMode category is enriched with category LTV, liquidation threshold, bonus, label, and price-source address. Reserve membership and eMode price-source conversion are not yet resolved, so eMode-aware liquidation calculations remain disabled for those accounts. Pairs are screening combinations only, not proof a liquidation call will succeed or be profitable. Close factor, protocol fee, flash-loan availability, DEX route, gas and MEV still require transaction-level validation. Borrower discovery remains limited to addresses already known to VaultHunter."
     };
   } finally {
     await provider.destroy();
