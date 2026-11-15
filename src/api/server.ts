@@ -37,9 +37,21 @@ function rateLimitFor(pathname: string): { key: string; max: number } {
   return { key: "general-api", max: 300 };
 }
 
+export function getRateLimitClientIdentity(
+  req: Pick<IncomingMessage, "headers" | "socket">
+): string {
+  // Render's Cloudflare edge overwrites CF-Connecting-IP. X-Forwarded-For is
+  // caller-spoofable on Render and must not be used for security decisions.
+  const cloudflareClientIp = req.headers["cf-connecting-ip"];
+  if (typeof cloudflareClientIp === "string" &&
+      /^[0-9a-fA-F:.]{2,64}$/.test(cloudflareClientIp.trim())) {
+    return cloudflareClientIp.trim().toLowerCase();
+  }
+  return req.socket.remoteAddress || "unknown";
+}
+
 function rateLimitExceeded(req: IncomingMessage, pathname: string): number | null {
-  // Do not trust caller-supplied X-Forwarded-For values for rate-limit identity.
-  const client = req.socket.remoteAddress || "unknown";
+  const client = getRateLimitClientIdentity(req);
   const policy = rateLimitFor(pathname);
   const key = `${client}:${policy.key}`;
   const now = Date.now();
