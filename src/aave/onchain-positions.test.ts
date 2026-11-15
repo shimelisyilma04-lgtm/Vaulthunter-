@@ -14,7 +14,10 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
     liquidationThreshold: "8250",
     liquidationBonus: "10500",
     isActive: true,
-    isFrozen: false
+    isFrozen: false,
+    oraclePriceBase: "200000000000",
+    suppliedValueBase: "40000000000",
+    debtValueBase: "0"
   },
   {
     asset: "0x0000000000000000000000000000000000000002",
@@ -28,7 +31,10 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
     liquidationThreshold: "0",
     liquidationBonus: "10000",
     isActive: true,
-    isFrozen: false
+    isFrozen: false,
+    oraclePriceBase: "100000000",
+    suppliedValueBase: "0",
+    debtValueBase: "100000000"
   }
 ];
 
@@ -39,9 +45,13 @@ describe("buildScreeningPairs", () => {
         collateralAsset: reserves[0]!.asset,
         collateralSymbol: "WETH",
         collateralBalance: "2000000000000000000",
+        collateralDecimals: 18,
+        collateralValueBase: "40000000000",
         debtAsset: reserves[1]!.asset,
         debtSymbol: "USDC",
         debtBalance: "1000000",
+        debtDecimals: 6,
+        debtValueBase: "100000000",
         liquidationBonus: "10500"
       }
     ]);
