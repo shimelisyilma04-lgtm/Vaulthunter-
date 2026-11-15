@@ -215,7 +215,10 @@
       body.replaceChildren();
       for(const item of result.data||[]){
         const tr=document.createElement('tr');
-        const pairs=(item.screeningPairs||[]).map(pair=>pair.collateralSymbol+' → '+pair.debtSymbol).join(', ');
+        const isUsd=String(item.baseCurrency||'').toLowerCase()==='0x0000000000000000000000000000000000000000';
+        const baseUnit=Number(item.baseCurrencyUnit||1);
+        const valueLabel=(raw)=>isUsd?money(Number(raw||0)/baseUnit):String(raw||'0')+' base units';
+        const pairs=(item.screeningPairs||[]).map(pair=>pair.collateralSymbol+' ('+valueLabel(pair.collateralValueBase)+') → '+pair.debtSymbol+' ('+valueLabel(pair.debtValueBase)+')').join(', ');
         const values=[
           shortAddress(item.user),
           item.healthFactor==null?'—':Number(item.healthFactor).toFixed(5),
@@ -229,7 +232,7 @@
       if(!(result.data||[]).length)body.innerHTML='<tr><td colspan="5">No previously flagged borrower snapshots to recheck. The indexer must discover and refresh accounts first.</td></tr>';
       document.getElementById('opportunityNote').textContent=
         result.checkedAccounts+' accounts rechecked · '+result.eligibleAccounts+' currently below HF 1 · '+result.pairCount+
-        ' possible reserve pairs. '+result.warning+(result.cached?' Cached result.':'');
+        ' possible reserve pairs. Values use the market base currency; eMode category overrides are not resolved. '+result.warning+(result.cached?' Cached result.':'');
     }catch(error){
       body.innerHTML='<tr><td colspan="5">Live recheck unavailable: '+esc(error instanceof Error?error.message:'Unknown error')+'</td></tr>';
       document.getElementById('opportunityNote').textContent='Check Ethereum RPC configuration and service logs.';
