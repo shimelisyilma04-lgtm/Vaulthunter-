@@ -93,8 +93,8 @@ export function buildScreeningPairs(
         debtValueBase: debt.debtValueBase,
         liquidationBonus: supply.liquidationBonus,
         liquidationProtocolFee: supply.liquidationProtocolFee,
-        eModeCompatible: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && debt.eModeCategory === userEModeCategory,
-        effectiveLiquidationBonus: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && debt.eModeCategory === userEModeCategory && eModeCategoryBonus !== null ? eModeCategoryBonus : supply.liquidationBonus
+        eModeCompatible: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory,
+        effectiveLiquidationBonus: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && eModeCategoryBonus !== null ? eModeCategoryBonus : supply.liquidationBonus
       });
     }
   }
