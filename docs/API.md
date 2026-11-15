@@ -32,11 +32,15 @@ VaultHunter exposes read-only market/indexer endpoints plus an optional, bearer-
 
 ## eMode-aware position and estimate behavior
 
-The on-chain position adapter reads the user's eMode category, category LTV/liquidation threshold/liquidation bonus/price-source address, and each reserve's eMode category from the reserve configuration bitmap. For a pair where both selected reserves match the user's eMode category, it uses the category liquidation bonus only when the category does not override the price source.
+The on-chain position adapter reads the user's eMode category, category LTV/liquidation threshold/liquidation bonus/price-source address, and each reserve's eMode category from the reserve configuration bitmap. For a pair where the collateral reserve matches the user's eMode category, it uses the category liquidation bonus only when the category does not override the price source.
 
 If the category has a non-zero custom price source, automatic USD profitability estimates are withheld. The custom price feed is surfaced but is not yet normalized to the market base currency. Estimates are also withheld when the Aave market base currency is not USD. This is deliberate: an unsupported price source must not silently produce a false profit estimate.
 
 `/api/v1/opportunities/estimate` requires a borrower address and `gasCostUsd`. Optional fee parameters are `flashLoanFeeBps`, `swapFeeBps`, `slippageBps`, and `safetyBufferBps`. It uses the reserve-level liquidation protocol fee from Aave's reserve configuration. Results are screening estimates, not proof of a successful liquidation.
+
+## Aave close-factor and partial-liquidation dust checks
+
+The estimator applies the close-factor percentage to total account debt, then caps repayment by the selected debt-reserve balance and available collateral. It allows up to 100% when health factor is at or below 0.95 or either selected reserve position is below $2,000. For a partial liquidation, it requires both remaining selected debt and collateral to be at least $1,000; fully clearing either side bypasses that partial-residual check. These are screening rules and the deployed Pool implementation remains authoritative.
 
 ## Multi-hop Uniswap route screening
 
