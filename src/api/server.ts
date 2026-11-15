@@ -10,7 +10,7 @@ import { estimateExecutionCosts } from "../domain/execution-costs.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
 import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
-import { simulateForkCall } from "../aave/fork-simulation.js";
+import { simulateAaveLiquidationCall, simulateForkCall } from "../aave/fork-simulation.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 
@@ -29,7 +29,7 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
-  if (pathname === "/api/v1/simulation/fork") return { key: "fork-simulation", max: 5 };
+  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
@@ -117,7 +117,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       res.end();
       return;
     }
-    const isForkSimulationPost = req.method === "POST" && url.pathname === "/api/v1/simulation/fork";
+    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation"].includes(url.pathname);
     if (req.method !== "GET" && !isForkSimulationPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -156,6 +156,28 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           body = await readJsonBody(req);
         } catch (error) {
           send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
+          return;
+        }
+        if (url.pathname === "/api/v1/simulation/aave-liquidation") {
+          if (typeof body.collateralAsset !== "string" || typeof body.debtAsset !== "string" ||
+              typeof body.user !== "string" || typeof body.debtToCover !== "string" ||
+              typeof body.receiveAToken !== "boolean" || typeof body.from !== "string") {
+            send(res, 400, { error: "invalid_aave_simulation_request", message: "Provide collateralAsset, debtAsset, user, debtToCover, receiveAToken and from." });
+            return;
+          }
+          try {
+            const result = await simulateAaveLiquidationCall(config.ETHEREUM_FORK_RPC_URL, {
+              collateralAsset: body.collateralAsset,
+              debtAsset: body.debtAsset,
+              user: body.user,
+              debtToCover: body.debtToCover,
+              receiveAToken: body.receiveAToken,
+              from: body.from
+            }, config.AAVE_INDEXER_CONFIRMATIONS);
+            send(res, 200, result);
+          } catch (error) {
+            send(res, 422, { error: "aave_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Aave liquidation call reverted or simulation failed", transactionSubmitted: false });
+          }
           return;
         }
         if (typeof body.to !== "string" || typeof body.data !== "string" ||
@@ -602,7 +624,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         send(res, 200, {
           configured: Boolean(config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN),
           status: config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN ? "fork_rpc_configured" : "awaiting_fork_configuration",
-          simulationEndpoint: "POST /api/v1/simulation/fork",
+          simulationEndpoints: ["POST /api/v1/simulation/fork", "POST /api/v1/simulation/aave-liquidation"],
           executionEnabled: false,
           transactionSubmissionEnabled: false,
           required: ["ETHEREUM_FORK_RPC_URL pointing to an isolated Ethereum-mainnet fork", "complete liquidation transaction calldata from a separately audited executor", "flash-loan and DEX callback path deployed on that fork"],
