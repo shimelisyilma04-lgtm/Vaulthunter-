@@ -188,7 +188,7 @@ export async function quoteUniswapV3BestPath(
   if (new Set(tokens.map((token) => token.toLowerCase())).size !== tokens.length) {
     throw new Error("A route cannot repeat a token address");
   }
-  if (!/^\\d+$/.test(input.amountIn) || BigInt(input.amountIn) <= 0n) {
+  if (!/^\d+$/.test(input.amountIn) || BigInt(input.amountIn) <= 0n) {
     throw new Error("amountIn must be a positive integer in the input token's smallest units");
   }
   const provider = new JsonRpcProvider(rpcUrl, 1, { staticNetwork: true });
