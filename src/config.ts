@@ -15,7 +15,12 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   ETHEREUM_RPC_URL: z.string().url().optional(),
   DATABASE_URL: z.string().url().optional(),
-  AAVE_SUBGRAPH_API_KEY: z.string().min(1).optional(),
+  AAVE_SUBGRAPH_API_KEY: z.preprocess(
+    (value) => typeof value === "string"
+      ? value.trim().replace(/^["']|["']$/g, "") || undefined
+      : value,
+    z.string().min(1).optional()
+  ),
   AAVE_SUBGRAPH_SYNC_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(900000),
   AAVE_SCAN_LOOKBACK_BLOCKS: z.coerce.number().int().min(1).max(10000).default(100),
   AAVE_INDEXER_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
