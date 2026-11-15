@@ -7,7 +7,7 @@ import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
-import { quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
+import { quoteUniswapV3BestExactInput, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 
@@ -27,7 +27,7 @@ const RATE_WINDOW_MS = 60_000;
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
   if (pathname === "/api/v1/opportunities") return { key: "opportunities", max: 5 };
-  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
+  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
   return { key: "general-api", max: 300 };
@@ -340,6 +340,28 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           ranking: "lowest-health-factor-first",
           warning: "This ranks only borrowers already discovered by the configured event indexer. Historical market coverage is incomplete; stale snapshots must be refreshed at a pinned block. Risk bands are screening labels, not liquidation or profitability guarantees."
         });
+        return;
+      }
+      if (url.pathname === "/api/v1/quote/uniswap-v3/best") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for on-chain Uniswap quotes." });
+          return;
+        }
+        const tokenIn = url.searchParams.get("tokenIn") ?? "";
+        const tokenOut = url.searchParams.get("tokenOut") ?? "";
+        const amountIn = url.searchParams.get("amountIn") ?? "";
+        if (!/^0x[0-9a-fA-F]{40}$/.test(tokenIn) ||
+            !/^0x[0-9a-fA-F]{40}$/.test(tokenOut) ||
+            !/^[0-9]+$/.test(amountIn) || amountIn.length > 78) {
+          send(res, 400, { error: "invalid_quote_parameters", message: "Provide tokenIn, tokenOut, and positive integer amountIn in token base units." });
+          return;
+        }
+        try {
+          const quote = await quoteUniswapV3BestExactInput(config.ETHEREUM_RPC_URL, { tokenIn, tokenOut, amountIn });
+          send(res, 200, quote);
+        } catch (error) {
+          send(res, 502, { error: "quote_unavailable", message: error instanceof Error ? error.message : "Uniswap fee-tier quote scan failed" });
+        }
         return;
       }
       if (url.pathname === "/api/v1/quote/uniswap-v3") {
