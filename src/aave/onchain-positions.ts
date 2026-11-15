@@ -42,6 +42,7 @@ interface ReservePosition {
   isCollateral: boolean;
   liquidationThreshold: string;
   liquidationBonus: string;
+  liquidationProtocolFee: string;
   isActive: boolean;
   isFrozen: boolean;
   oraclePriceBase: string;
@@ -66,6 +67,7 @@ export function buildScreeningPairs(
   debtDecimals: number;
   debtValueBase: string;
   liquidationBonus: string;
+  liquidationProtocolFee: string;
   eModeCompatible: boolean;
   effectiveLiquidationBonus: string;
 }> {
@@ -90,6 +92,7 @@ export function buildScreeningPairs(
         debtDecimals: debt.decimals,
         debtValueBase: debt.debtValueBase,
         liquidationBonus: supply.liquidationBonus,
+        liquidationProtocolFee: supply.liquidationProtocolFee,
         eModeCompatible: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && debt.eModeCategory === userEModeCategory,
         effectiveLiquidationBonus: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && debt.eModeCategory === userEModeCategory && eModeCategoryBonus !== null ? eModeCategoryBonus : supply.liquidationBonus
       });
@@ -172,6 +175,7 @@ export async function fetchOnchainAavePositions(
         const decimals = Number(reserveConfig[0]);
         const configurationBitmap = BigInt((bitmapRaw as readonly [bigint])[0]);
         const eModeCategory = Number((configurationBitmap >> 168n) & 0xffn);
+        const liquidationProtocolFee = ((configurationBitmap >> 152n) & 0xffffn).toString();
         const oraclePriceBase = BigInt(priceRaw as bigint);
         const assetUnit = 10n ** BigInt(decimals);
         const suppliedValueBase = suppliedBalance * oraclePriceBase / assetUnit;
@@ -189,6 +193,7 @@ export async function fetchOnchainAavePositions(
           isCollateral: position[8],
           liquidationThreshold: reserveConfig[2].toString(),
           liquidationBonus: reserveConfig[3].toString(),
+          liquidationProtocolFee,
           isActive: reserveConfig[8],
           isFrozen: reserveConfig[9],
           oraclePriceBase: oraclePriceBase.toString(),
