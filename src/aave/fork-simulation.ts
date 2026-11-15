@@ -1,4 +1,4 @@
-import { JsonRpcProvider, getAddress, toQuantity } from "ethers";
+import { Interface, JsonRpcProvider, getAddress, toQuantity } from "ethers";
 
 export interface ForkSimulationInput {
   to: string;
@@ -84,4 +84,49 @@ export async function simulateForkCall(
   } finally {
     await provider.destroy();
   }
+}
+
+const AAVE_V3_ETHEREUM_POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
+const AAVE_LIQUIDATION_INTERFACE = new Interface([
+  "function liquidationCall(address collateralAsset,address debtAsset,address user,uint256 debtToCover,bool receiveAToken)"
+]);
+
+export async function simulateAaveLiquidationCall(
+  forkRpcUrl: string,
+  input: {
+    collateralAsset: string;
+    debtAsset: string;
+    user: string;
+    debtToCover: string;
+    receiveAToken: boolean;
+    from: string;
+  },
+  confirmations = 1
+) {
+  const collateralAsset = getAddress(input.collateralAsset);
+  const debtAsset = getAddress(input.debtAsset);
+  const user = getAddress(input.user);
+  const from = getAddress(input.from);
+  if (collateralAsset === debtAsset) throw new Error("collateralAsset and debtAsset must be different addresses");
+  if (!/^[1-9][0-9]*$/.test(input.debtToCover) || input.debtToCover.length > 78) {
+    throw new Error("debtToCover must be a positive integer string in debt-token base units");
+  }
+  const data = AAVE_LIQUIDATION_INTERFACE.encodeFunctionData("liquidationCall", [
+    collateralAsset, debtAsset, user, BigInt(input.debtToCover), input.receiveAToken
+  ]);
+  const result = await simulateForkCall(forkRpcUrl, {
+    to: AAVE_V3_ETHEREUM_POOL,
+    data,
+    from
+  }, confirmations);
+  return {
+    ...result,
+    simulationType: "aave-v3-direct-funded-liquidation-call" as const,
+    liquidation: {
+      collateralAsset, debtAsset, user,
+      debtToCover: input.debtToCover,
+      receiveAToken: input.receiveAToken
+    },
+    warning: "This simulates the Aave Pool liquidationCall directly, not a flash-loan-funded executor. The from address must have sufficient debt-token balance and allowance on the fork. A successful eth_call does not guarantee later execution or profit."
+  };
 }
