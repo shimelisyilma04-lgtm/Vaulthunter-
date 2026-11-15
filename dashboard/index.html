@@ -61,6 +61,14 @@
         <div class="signal"><span class="dot"></span>Health-factor snapshots can become stale as prices and positions change.</div>
       </article>
     </section>
+    <section class="panel tablepanel" id="opportunities" style="margin-top:16px">
+      <div class="tabletop">
+        <div><h2>Live liquidation rechecks</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">Previously flagged borrowers re-read from Aave at a confirmed Ethereum block</span></div>
+        <button class="calc-button" id="refreshOpportunities" type="button">Recheck candidates</button>
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>ACCOUNT</th><th>LIVE HEALTH FACTOR</th><th>CONFIRMED BLOCK</th><th>SCREENING PAIRS</th><th>STATUS</th></tr></thead><tbody id="opportunityRows"><tr><td colspan="5">Waiting for first live recheck…</td></tr></tbody></table></div>
+      <p id="opportunityNote" class="hint" style="margin:10px 19px 16px">This checks only accounts already discovered and previously flagged by the indexer. A pair is not a profitable or executable trade.</p>
+    </section>
     <section class="panel tablepanel" id="market" style="margin-top:16px">
       <div class="tabletop"><div><h2>Aave V3 market intelligence</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">Reserve liquidity, liquidation settings and flash-loan availability from AaveKit</span></div><button class="calc-button" id="refreshMarket" type="button">Refresh market</button></div>
       <div class="cards" style="margin:12px 0">
@@ -195,6 +203,39 @@
       document.getElementById('marketFreshness').textContent='Check AaveKit API availability and try again.';
     }finally{button.disabled=false}
   }
+  async function loadOpportunities(){
+    const body=document.getElementById('opportunityRows');
+    const button=document.getElementById('refreshOpportunities');
+    button.disabled=true;
+    body.innerHTML='<tr><td colspan="5">Rechecking previously flagged accounts against confirmed Ethereum state…</td></tr>';
+    try{
+      const response=await fetch('/api/v1/opportunities?limit=20');
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.message||'Opportunity recheck failed');
+      body.replaceChildren();
+      for(const item of result.data||[]){
+        const tr=document.createElement('tr');
+        const pairs=(item.screeningPairs||[]).map(pair=>pair.collateralSymbol+' → '+pair.debtSymbol).join(', ');
+        const values=[
+          shortAddress(item.user),
+          item.healthFactor==null?'—':Number(item.healthFactor).toFixed(5),
+          item.observedBlock==null?'—':Number(item.observedBlock).toLocaleString(),
+          pairs||'No active pair found',
+          item.recheckError?'Recheck failed':item.liquidationEligibleAtBlock?'HF below 1 · screen only':'No longer eligible'
+        ];
+        for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td)}
+        body.append(tr);
+      }
+      if(!(result.data||[]).length)body.innerHTML='<tr><td colspan="5">No previously flagged borrower snapshots to recheck. The indexer must discover and refresh accounts first.</td></tr>';
+      document.getElementById('opportunityNote').textContent=
+        result.checkedAccounts+' accounts rechecked · '+result.eligibleAccounts+' currently below HF 1 · '+result.pairCount+
+        ' possible reserve pairs. '+result.warning+(result.cached?' Cached result.':'');
+    }catch(error){
+      body.innerHTML='<tr><td colspan="5">Live recheck unavailable: '+esc(error instanceof Error?error.message:'Unknown error')+'</td></tr>';
+      document.getElementById('opportunityNote').textContent='Check Ethereum RPC configuration and service logs.';
+    }finally{button.disabled=false}
+  }
+  document.getElementById('refreshOpportunities').addEventListener('click',loadOpportunities);
   document.getElementById("refreshMarket").addEventListener("click",loadMarket);
   document.getElementById('borrowerRows').addEventListener('click',async(event)=>{
     const button=event.target.closest('button[data-user]');
@@ -278,7 +319,7 @@
     }catch(error){output.textContent='Estimate unavailable: '+(error instanceof Error?error.message:'Unknown error')}
     finally{estimateButton.disabled=false}
   });
-  refresh();loadMarket();setInterval(refresh,60000);setInterval(loadMarket,30000);
+  refresh();loadMarket();loadOpportunities();setInterval(refresh,60000);setInterval(loadMarket,30000);setInterval(loadOpportunities,60000);
 </script>
 </body>
 </html>
