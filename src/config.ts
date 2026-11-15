@@ -38,6 +38,10 @@ const envSchema = z.object({
 
 const parsed = envSchema.safeParse({
   ...process.env,
+  AAVE_SUBGRAPH_API_KEY:
+    process.env.AAVE_SUBGRAPH_API_KEY ??
+    process.env.GRAPH_API_KEY ??
+    process.env.THE_GRAPH_API_KEY,
   ETHEREUM_RPC_URL: rpcUrlResult?.success ? rpcUrlResult.data : undefined
 });
 
