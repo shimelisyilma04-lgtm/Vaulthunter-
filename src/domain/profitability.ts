@@ -81,9 +81,9 @@ function finiteNonNegative(value: number, name: string): number {
   return value;
 }
 
-function validateBps(value: number, name: string): number {
+function validateBps(value: number, name: string, allowFull = false): number {
   finiteNonNegative(value, name);
-  if (!Number.isInteger(value) || value >= BPS) {
+  if (!Number.isInteger(value) || value > (allowFull ? BPS : BPS - 1)) {
     throw new Error(`${name} must be an integer from 0 to 9999 basis points`);
   }
   return value;
@@ -105,7 +105,7 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
   const flashFeeBps = validateBps(input.flashLoanFeeBps ?? 0, "flashLoanFeeBps");
   const swapFeeBps = validateBps(input.swapFeeBps ?? 0, "swapFeeBps");
   const slippageBps = validateBps(input.slippageBps ?? 0, "slippageBps");
-  const protocolFeeBps = validateBps(input.protocolFeeBps ?? 0, "protocolFeeBps");
+  const protocolFeeBps = validateBps(input.protocolFeeBps ?? 0, "protocolFeeBps", true);
   const safetyBufferBps = validateBps(input.safetyBufferBps ?? 500, "safetyBufferBps");
 
   const assumptions = [
