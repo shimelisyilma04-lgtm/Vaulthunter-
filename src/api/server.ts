@@ -6,6 +6,7 @@ import type { AaveStorePort } from "../aave/store.js";
 import { config, rpcConfigError } from "../config.js";
 import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
+import { estimateExecutionCosts } from "../domain/execution-costs.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
 import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
@@ -245,6 +246,50 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 200, positions);
         } catch (error) {
           send(res, 502, { error: "aavekit_unavailable", message: error instanceof Error ? error.message : "AaveKit request failed" });
+        }
+        return;
+      }
+      if (url.pathname === "/api/v1/execution-costs") {
+        const integerKeys = [
+          "grossProfitUsdCents", "gasLimit", "maxFeePerGasWei", "nativeAssetPriceUsdWad",
+          "flashLoanPrincipalUsdCents", "swapNotionalUsdCents", "builderFeeUsdCents"
+        ] as const;
+        const values: Record<string, string> = {};
+        for (const key of integerKeys) {
+          const raw = url.searchParams.get(key);
+          if (raw === null || !/^(0|[1-9][0-9]*)$/.test(raw) || raw.length > 100) {
+            send(res, 400, { error: "invalid_parameter", message: key + " must be a non-negative integer string." });
+            return;
+          }
+          values[key] = raw;
+        }
+        const bpsKeys = ["flashLoanFeeBps", "swapFeeBps", "slippageBps", "safetyBufferBps"] as const;
+        const bps: Record<string, number> = {};
+        for (const key of bpsKeys) {
+          const raw = url.searchParams.get(key) ?? "0";
+          if (!/^[0-9]{1,4}$/.test(raw) || Number(raw) >= 10000) {
+            send(res, 400, { error: "invalid_parameter", message: key + " must be an integer from 0 to 9999." });
+            return;
+          }
+          bps[key] = Number(raw);
+        }
+        try {
+          const result = estimateExecutionCosts({
+            grossProfitUsdCents: values.grossProfitUsdCents!,
+            gasLimit: values.gasLimit!,
+            maxFeePerGasWei: values.maxFeePerGasWei!,
+            nativeAssetPriceUsdWad: values.nativeAssetPriceUsdWad!,
+            flashLoanPrincipalUsdCents: values.flashLoanPrincipalUsdCents!,
+            flashLoanFeeBps: bps.flashLoanFeeBps!,
+            swapNotionalUsdCents: values.swapNotionalUsdCents!,
+            swapFeeBps: bps.swapFeeBps!,
+            slippageBps: bps.slippageBps!,
+            builderFeeUsdCents: values.builderFeeUsdCents!,
+            safetyBufferBps: bps.safetyBufferBps!
+          });
+          send(res, 200, { ...result, source: "caller-supplied-integer-cost-inputs", executionEnabled: false });
+        } catch (error) {
+          send(res, 400, { error: "invalid_execution_cost_input", message: error instanceof Error ? error.message : "Invalid execution-cost input" });
         }
         return;
       }
