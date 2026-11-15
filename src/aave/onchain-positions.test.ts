@@ -33,6 +33,7 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
     isCollateral: false,
     liquidationThreshold: "0",
     liquidationBonus: "10000",
+    liquidationProtocolFee: "0",
     isActive: true,
     isFrozen: false,
     oraclePriceBase: "100000000",
