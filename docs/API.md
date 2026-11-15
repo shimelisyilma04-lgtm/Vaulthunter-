@@ -27,7 +27,7 @@ VaultHunter exposes read-only market/indexer endpoints plus an optional, bearer-
 | GET | `/api/v1/execution-costs?... ` | Integer-based conservative execution-cost budget in USD cents |
 | GET | `/api/v1/estimate?... ` | Caller-input Aave liquidation screening estimate |
 | GET | `/api/v1/simulation/status` | Fork simulator configuration status |
-| POST | `/api/v1/simulation/fork` | Read-only `eth_call` and gas estimate against a verified Anvil fork |
+| POST | `/api/v1/simulation/fork` | Read-only `eth_call` and gas estimate for caller-supplied calldata against a verified Anvil fork |\n| POST | `/api/v1/simulation/aave-liquidation` | Build and simulate a direct-funded Aave V3 `liquidationCall` on the fork |
 
 ## eMode-aware position and estimate behavior
 
@@ -67,7 +67,7 @@ The request requires `Authorization: Bearer <token>` and a JSON body:
 }
 ```
 
-The endpoint runs `eth_call` and `eth_estimateGas` against the same confirmed fork block. It never calls `eth_sendTransaction`, `eth_sendRawTransaction`, or a signing method. The caller must provide complete calldata for the transaction it wants to test. A complete, audited Aave flash-loan liquidation executor and calldata builder are not included in this repository.
+The endpoint runs `eth_call` and `eth_estimateGas` against the same confirmed fork block. It never calls `eth_sendTransaction`, `eth_sendRawTransaction`, or a signing method. The caller can provide complete custom calldata or use the direct Aave liquidation endpoint. The direct-funded path requires the `from` address to have debt-token balance and allowance on the fork. A flash-loan-funded executor and its callback/calldata builder are not included in this repository.
 
 Never point the fork RPC variable at a public mainnet RPC or transaction broadcaster. Do not send private keys, seed phrases, or signing credentials to VaultHunter.
 
