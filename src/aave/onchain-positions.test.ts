@@ -33,7 +33,7 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
 ];
 
 describe("buildScreeningPairs", () => {
-  it("returns cross-asset collateral/debt pairs only below health factor 1", () => {
+  it("returns collateral/debt pairs only below health factor 1", () => {
     expect(buildScreeningPairs(reserves, "999999999999999999")).toEqual([
       {
         collateralAsset: reserves[0]!.asset,
@@ -55,10 +55,10 @@ describe("buildScreeningPairs", () => {
     expect(buildScreeningPairs(rows, "900000000000000000")).toEqual([]);
   });
 
-  it("does not generate a pair when collateral and debt are the same asset", () => {
+  it("keeps same-asset collateral/debt pairs for protocol validation", () => {
     const sameAsset = [
       { ...reserves[0]!, totalDebt: "100", variableDebt: "100" }
     ];
-    expect(buildScreeningPairs(sameAsset, "900000000000000000")).toEqual([]);
+    expect(buildScreeningPairs(sameAsset, "900000000000000000")).toHaveLength(1);
   });
 });
