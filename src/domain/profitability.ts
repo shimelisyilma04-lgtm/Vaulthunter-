@@ -63,6 +63,8 @@ export interface AaveV3Estimate {
   safetyBufferUsd: number;
   estimatedNetProfitUsd: number;
   profitableBeforeExecutionChecks: boolean;
+  dustRuleSatisfied: boolean;
+  dustRuleReason: string;
   assumptions: string[];
   warnings: string[];
 }
@@ -70,6 +72,7 @@ export interface AaveV3Estimate {
 const BPS = 10_000;
 const FULL_CLOSE_HF = 0.95;
 const SMALL_POSITION_USD = 2_000;
+const MIN_LEFTOVER_USD = 1_000;
 
 function finiteNonNegative(value: number, name: string): number {
   if (!Number.isFinite(value) || value < 0) {
@@ -108,7 +111,8 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
   const assumptions = [
     "USD values and reserve parameters are caller-supplied; no market quote is invented.",
     "All inputs must refer to the same recent block and the selected Aave V3 Ethereum market.",
-    "The close factor applies to the selected debt-reserve position, not the borrower's aggregate portfolio debt.",
+    "The close-factor percentage caps total account debt; repayment is then capped by the selected debt-reserve balance.",
+    "Partial liquidation must leave at least $1,000 of both selected debt and collateral, unless the selected debt or collateral is fully cleared.",
     "Swap fee and slippage are applied to estimated collateral proceeds.",
     "Protocol fee is modelled against the liquidation bonus.",
     "Failed-transaction costs, MEV competition, and route-specific execution effects are excluded."
@@ -125,7 +129,9 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
       maxRepayUsd: 0, collateralSeizedUsd: 0, grossBonusUsd: 0,
       protocolFeeUsd: 0, flashLoanFeeUsd: 0, swapCostUsd: 0, gasCostUsd,
       safetyBufferUsd: 0, estimatedNetProfitUsd: -gasCostUsd,
-      profitableBeforeExecutionChecks: false, assumptions, warnings
+      profitableBeforeExecutionChecks: false, dustRuleSatisfied: false,
+      dustRuleReason: "The borrower does not pass the health-factor eligibility check.",
+      assumptions, warnings
     };
   }
 
@@ -135,11 +141,11 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
     debtReserveUsd < SMALL_POSITION_USD ||
     collateralReserveUsd < SMALL_POSITION_USD;
   const closeFactorBps: 0 | 5000 | 10000 = fullClose ? 10_000 : 5_000;
-  const closeFactorCap = debtReserveUsd * closeFactorBps / BPS;
-  // The selected collateral balance, not an invented minimum residual, caps
-  // repayment after applying the reserve liquidation bonus.
+  const closeFactorCap = totalDebtUsd * closeFactorBps / BPS;
+  // Aave's account-level close-factor cap is then constrained by this debt reserve
+  // and the selected collateral balance after the liquidation bonus.
   const collateralCap = collateralAvailableUsd / (1 + bonusBps / BPS);
-  const maxRepayUsd = Math.max(0, Math.min(closeFactorCap, collateralCap));
+  const maxRepayUsd = Math.max(0, Math.min(debtReserveUsd, closeFactorCap, collateralCap));
   const grossBonusUsd = maxRepayUsd * bonusBps / BPS;
   const collateralSeizedUsd = maxRepayUsd + grossBonusUsd;
   const protocolFeeUsd = grossBonusUsd * protocolFeeBps / BPS;
@@ -148,13 +154,30 @@ export function estimateAaveV3Liquidation(input: AaveV3EstimateInput): AaveV3Est
   const safetyBufferUsd = grossBonusUsd * safetyBufferBps / BPS;
   const estimatedNetProfitUsd = grossBonusUsd - protocolFeeUsd - flashLoanFeeUsd -
     swapCostUsd - gasCostUsd - safetyBufferUsd;
+  const remainingDebtUsd = Math.max(0, debtReserveUsd - maxRepayUsd);
+  const remainingCollateralUsd = Math.max(0, collateralAvailableUsd - collateralSeizedUsd);
+  const debtFullyCleared = remainingDebtUsd <= 0.00000001;
+  const collateralFullyCleared = remainingCollateralUsd <= 0.00000001;
+  const partialLiquidation = !debtFullyCleared && !collateralFullyCleared;
+  const dustRuleSatisfied = !partialLiquidation ||
+    (remainingDebtUsd >= MIN_LEFTOVER_USD && remainingCollateralUsd >= MIN_LEFTOVER_USD);
+  const dustRuleReason = debtFullyCleared
+    ? "Selected debt reserve is fully repaid."
+    : collateralFullyCleared
+      ? "Selected collateral reserve is fully cleared."
+      : dustRuleSatisfied
+        ? "Both remaining selected debt and collateral are at least $1,000."
+        : "A partial liquidation would leave less than $1,000 of selected debt or collateral; Aave's dust rule may revert it.";
+  if (!dustRuleSatisfied) warnings.push(dustRuleReason);
 
   return {
     protocol: "aave-v3", eligibleByHealthFactor: true, closeFactorBps,
     maxRepayUsd, collateralSeizedUsd, grossBonusUsd, protocolFeeUsd,
     flashLoanFeeUsd, swapCostUsd, gasCostUsd, safetyBufferUsd,
     estimatedNetProfitUsd,
-    profitableBeforeExecutionChecks: maxRepayUsd > 0 && estimatedNetProfitUsd > 0,
+    profitableBeforeExecutionChecks: maxRepayUsd > 0 && estimatedNetProfitUsd > 0 && dustRuleSatisfied,
+    dustRuleSatisfied,
+    dustRuleReason,
     assumptions, warnings
   };
 }
