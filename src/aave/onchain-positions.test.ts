@@ -5,6 +5,7 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
   {
     asset: "0x0000000000000000000000000000000000000001",
     symbol: "WETH",
+    eModeCategory: 0,
     decimals: 18,
     suppliedBalance: "2000000000000000000",
     stableDebt: "0",
@@ -22,6 +23,7 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
   {
     asset: "0x0000000000000000000000000000000000000002",
     symbol: "USDC",
+    eModeCategory: 0,
     decimals: 6,
     suppliedBalance: "0",
     stableDebt: "0",
@@ -52,7 +54,9 @@ describe("buildScreeningPairs", () => {
         debtBalance: "1000000",
         debtDecimals: 6,
         debtValueBase: "100000000",
-        liquidationBonus: "10500"
+        liquidationBonus: "10500",
+        eModeCompatible: false,
+        effectiveLiquidationBonus: "10500"
       }
     ]);
     expect(buildScreeningPairs(reserves, "1000000000000000000")).toEqual([]);
