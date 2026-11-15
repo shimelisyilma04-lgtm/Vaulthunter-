@@ -84,10 +84,10 @@ describe("buildScreeningPairs", () => {
     expect(pairs[0]?.eModeCompatible).toBe(true);
     expect(pairs[0]?.effectiveLiquidationBonus).toBe("10750");
 
-    categoryRows[1]!.eModeCategory = 0;
-    const mismatched = buildScreeningPairs(categoryRows, "900000000000000000", 1, "10750");
-    expect(mismatched[0]?.eModeCompatible).toBe(false);
-    expect(mismatched[0]?.effectiveLiquidationBonus).toBe("10500");
+    categoryRows[0]!.eModeCategory = 0;
+    const mismatchedCollateral = buildScreeningPairs(categoryRows, "900000000000000000", 1, "10750");
+    expect(mismatchedCollateral[0]?.eModeCompatible).toBe(false);
+    expect(mismatchedCollateral[0]?.effectiveLiquidationBonus).toBe("10500");
   });
 
 });
