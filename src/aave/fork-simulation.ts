@@ -45,6 +45,16 @@ export async function simulateForkCall(
     if (network.chainId !== 1n) {
       throw new Error("Fork simulation endpoint must be an Ethereum mainnet fork (chain ID 1)");
     }
+    let nodeInfo: unknown;
+    try {
+      nodeInfo = await provider.send("anvil_nodeInfo", []);
+    } catch {
+      throw new Error("Simulation RPC is not a verified Anvil node. Use a private Anvil fork endpoint; mainnet RPCs are refused.");
+    }
+    if (!nodeInfo || typeof nodeInfo !== "object" || !("forkConfig" in nodeInfo) ||
+        !(nodeInfo as { forkConfig?: unknown }).forkConfig) {
+      throw new Error("Anvil RPC does not report an active fork configuration; refusing to simulate against a non-fork node.");
+    }
     const forkBlock = await provider.getBlockNumber();
     const safeBlock = Math.max(0, forkBlock - confirmations);
     const tx = {
