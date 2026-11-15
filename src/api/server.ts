@@ -25,7 +25,8 @@ const rateBuckets = new Map<string, RateBucket>();
 const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
-  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };\n  if (pathname === "/api/v1/opportunities") return { key: "opportunities", max: 5 };
+  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
+  if (pathname === "/api/v1/opportunities") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
