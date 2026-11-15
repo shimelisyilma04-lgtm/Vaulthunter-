@@ -9,6 +9,7 @@ import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
 import { quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
+import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -23,7 +24,7 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
-  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/positions"].includes(pathname)) {
+  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
   return { key: "general-api", max: 300 };
@@ -153,6 +154,26 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         const market = await fetchAaveMarketSnapshot();
         marketCache = { createdAt: Date.now(), data: market };
         send(res, 200, { ...market, cached: false });
+        return;
+      }
+      if (url.pathname === "/api/v1/positions/onchain") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for block-pinned reserve positions." });
+          return;
+        }
+        const user = url.searchParams.get("user")?.trim();
+        if (!user || !/^0x[0-9a-fA-F]{40}$/.test(user)) {
+          send(res, 400, { error: "invalid_user_address", message: "Provide a valid 20-byte Ethereum address in the user query parameter." });
+          return;
+        }
+        try {
+          const positions = await fetchOnchainAavePositions(
+            config.ETHEREUM_RPC_URL, user, config.AAVE_INDEXER_CONFIRMATIONS
+          );
+          send(res, 200, positions);
+        } catch (error) {
+          send(res, 502, { error: "onchain_positions_unavailable", message: error instanceof Error ? error.message : "Aave on-chain position lookup failed" });
+        }
         return;
       }
       if (url.pathname === "/api/v1/positions") {
