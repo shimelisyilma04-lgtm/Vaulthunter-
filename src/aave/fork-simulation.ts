@@ -66,7 +66,7 @@ export async function simulateForkCall(
     // eth_call executes the supplied calldata against fork state without broadcasting.
     const returnData = await provider.send("eth_call", [tx, toQuantity(safeBlock)]) as string;
     // Estimate gas on the same isolated fork. This does not sign or submit a transaction.
-    const estimatedGas = await provider.send("eth_estimateGas", [tx]) as string;
+    const estimatedGas = await provider.send("eth_estimateGas", [tx, toQuantity(safeBlock)]) as string;
     return {
       chainId: 1,
       forkBlock,
