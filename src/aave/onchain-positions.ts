@@ -15,6 +15,7 @@ const DATA_PROVIDER_ABI = [
 const POOL_ABI = [
   "function getUserAccountData(address user) view returns (uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor)",
   "function getUserEMode(address user) view returns (uint256)",
+  "function getConfiguration(address asset) view returns (tuple(uint256 data))",
   "function getEModeCategoryData(uint8 id) view returns (uint16 ltv,uint16 liquidationThreshold,uint16 liquidationBonus,address priceSource,string label)"
 ] as const;
 
@@ -32,6 +33,7 @@ interface ReserveToken {
 interface ReservePosition {
   asset: string;
   symbol: string;
+  eModeCategory: number;
   decimals: number;
   suppliedBalance: string;
   stableDebt: string;
@@ -49,7 +51,9 @@ interface ReservePosition {
 
 export function buildScreeningPairs(
   reserves: ReservePosition[],
-  healthFactorWad: string
+  healthFactorWad: string,
+  userEModeCategory = 0,
+  eModeCategoryBonus: string | null = null
 ): Array<{
   collateralAsset: string;
   collateralSymbol: string;
@@ -62,6 +66,8 @@ export function buildScreeningPairs(
   debtDecimals: number;
   debtValueBase: string;
   liquidationBonus: string;
+  eModeCompatible: boolean;
+  effectiveLiquidationBonus: string;
 }> {
   if (BigInt(healthFactorWad) >= WAD) return [];
   const collateral = reserves.filter((item) =>
@@ -83,7 +89,9 @@ export function buildScreeningPairs(
         debtBalance: debt.totalDebt,
         debtDecimals: debt.decimals,
         debtValueBase: debt.debtValueBase,
-        liquidationBonus: supply.liquidationBonus
+        liquidationBonus: supply.liquidationBonus,
+        eModeCompatible: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && debt.eModeCategory === userEModeCategory,
+        effectiveLiquidationBonus: userEModeCategory > 0 && supply.eModeCategory === userEModeCategory && debt.eModeCategory === userEModeCategory && eModeCategoryBonus !== null ? eModeCategoryBonus : supply.liquidationBonus
       });
     }
   }
@@ -147,10 +155,11 @@ export async function fetchOnchainAavePositions(
       const batch = tokens.slice(offset, offset + 5);
       const rows = await Promise.all(batch.map(async (token) => {
         const asset = getAddress(token.tokenAddress);
-        const [positionRaw, configRaw, priceRaw] = await Promise.all([
+        const [positionRaw, configRaw, priceRaw, bitmapRaw] = await Promise.all([
           dataProvider.getFunction("getUserReserveData").staticCall(asset, user, { blockTag: observedBlock }),
           dataProvider.getFunction("getReserveConfigurationData").staticCall(asset, { blockTag: observedBlock }),
-          oracle.getFunction("getAssetPrice").staticCall(asset, { blockTag: observedBlock })
+          oracle.getFunction("getAssetPrice").staticCall(asset, { blockTag: observedBlock }),
+          pool.getFunction("getConfiguration").staticCall(asset, { blockTag: observedBlock })
         ]);
         const position = positionRaw as readonly [bigint,bigint,bigint,bigint,bigint,bigint,bigint,bigint,boolean];
         const reserveConfig = configRaw as readonly [bigint,bigint,bigint,bigint,bigint,boolean,boolean,boolean,boolean,boolean];
@@ -161,6 +170,8 @@ export async function fetchOnchainAavePositions(
         if (suppliedBalance === 0n && totalDebt === 0n) return null;
 
         const decimals = Number(reserveConfig[0]);
+        const configurationBitmap = BigInt((bitmapRaw as readonly [bigint])[0]);
+        const eModeCategory = Number((configurationBitmap >> 168n) & 0xffn);
         const oraclePriceBase = BigInt(priceRaw as bigint);
         const assetUnit = 10n ** BigInt(decimals);
         const suppliedValueBase = suppliedBalance * oraclePriceBase / assetUnit;
@@ -169,6 +180,7 @@ export async function fetchOnchainAavePositions(
         return {
           asset,
           symbol: token.symbol,
+          eModeCategory,
           decimals,
           suppliedBalance: suppliedBalance.toString(),
           stableDebt: stableDebt.toString(),
@@ -205,7 +217,7 @@ export async function fetchOnchainAavePositions(
         label: categoryRaw[4]
       };
     }
-    const eModeAwareCalculationReady = userEModeCategory === 0;
+    const eModeAwareCalculationReady = userEModeCategory === 0 || (eModeCategoryData !== null && eModeCategoryData.priceSource.toLowerCase() === "0x0000000000000000000000000000000000000000");
     const liquidationEligibleAtBlock = account[1] > 0n && account[5] > 0n && account[5] < WAD;
     return {
       user,
@@ -223,9 +235,9 @@ export async function fetchOnchainAavePositions(
       totalDebtBase: account[1].toString(),
       liquidationEligibleAtBlock,
       reserves,
-      screeningPairs: buildScreeningPairs(reserves, healthFactorWad),
+      screeningPairs: buildScreeningPairs(reserves, healthFactorWad, userEModeCategory, eModeCategoryData?.liquidationBonus ?? null),
       source: "aave-v3-protocol-data-provider",
-      warning: "Balances and Aave oracle prices are read at one confirmed block. Base-currency values are not automatically USD unless the market base currency is USD. A non-zero eMode category is enriched with category LTV, liquidation threshold, bonus, label, and price-source address. Reserve membership and eMode price-source conversion are not yet resolved, so eMode-aware liquidation calculations remain disabled for those accounts. Pairs are screening combinations only, not proof a liquidation call will succeed or be profitable. Close factor, protocol fee, flash-loan availability, DEX route, gas and MEV still require transaction-level validation. Borrower discovery remains limited to addresses already known to VaultHunter."
+      warning: "Balances and Aave oracle prices are read at one confirmed block. Base-currency values are not automatically USD unless the market base currency is USD. Reserve eMode-category membership is decoded from Aave reserve configuration. When both selected assets belong to the user category and the category does not override the price source, the category liquidation bonus is used. A non-zero category price source is exposed but not converted into base-currency prices; those accounts are marked as not ready for eMode-aware profitability calculations. Pairs are screening combinations only, not proof a liquidation call will succeed or be profitable. Close factor, protocol fee, flash-loan availability, DEX route, gas and MEV still require transaction-level validation. Borrower discovery remains limited to addresses already known to VaultHunter."
     };
   } finally {
     await provider.destroy();
