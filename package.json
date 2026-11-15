@@ -2,7 +2,7 @@
   "name": "vaulthunter",
   "version": "0.1.0",
   "private": true,
-  "description": "Read-only DeFi liquidation and keeper intelligence foundation",
+  "description": "Aave V3 liquidation trading bot and keeper infrastructure",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "rpc:check": "tsx src/index.ts",
+    "rpc:check": "tsx src/rpc-check.ts",
     "aave:scan": "tsx src/aave/scan.ts",
     "aave:index:once": "tsx src/aave/indexer-cli.ts --once",
     "aave:index": "tsx src/aave/indexer-cli.ts"
