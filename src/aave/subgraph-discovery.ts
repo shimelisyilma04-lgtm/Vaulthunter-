@@ -1,7 +1,9 @@
 const AAVE_V3_ETHEREUM_SUBGRAPH_ID = "Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g";
 export const AAVE_V3_POOL_ADDRESS = "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2";
-const PAGE_SIZE = 100;
-const MAX_PAGES = 10;
+// The Graph supports up to 1,000 entities per collection query. Keep each
+// request within that limit and cap the sync at 5,000 recent Borrow events.
+const PAGE_SIZE = 1_000;
+const MAX_PAGES = 5;
 
 interface BorrowRow {
   id: string;
@@ -19,6 +21,10 @@ interface SubgraphResponse {
  * Returns a bounded set of historical Aave V3 borrowers from Aave's official
  * protocol subgraph. This is discovery data only; current account state must
  * be refreshed from Ethereum RPC before ranking or simulation.
+ *
+ * The sync reads at most 5,000 recent Borrow events. It is intentionally not
+ * described as exhaustive historical discovery; use the on-chain indexer and
+ * repeated refreshes to maintain the known borrower set.
  */
 export async function discoverAaveBorrowersFromSubgraph(apiKey: string): Promise<{
   addresses: string[];
