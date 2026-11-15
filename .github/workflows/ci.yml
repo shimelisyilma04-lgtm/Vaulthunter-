@@ -24,7 +24,7 @@ jobs:
       - run: npm test
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - name: Verify configured Ethereum RPC
+      - name: Check configured Ethereum RPC (bounded)
         if: ${{ env.ETHEREUM_RPC_URL != '' }}
         run: npm run rpc:check
       - name: Run bounded Aave V3 read-only scan
