@@ -82,6 +82,11 @@ describe("estimateAaveV3Liquidation", () => {
     expect(result.dustRuleSatisfied).toBe(true);
   });
 
+  it("accepts a full protocol-fee share of the liquidation bonus", () => {
+    const result = estimateAaveV3Liquidation({ ...base, protocolFeeBps: 10_000 });
+    expect(result.protocolFeeUsd).toBe(result.grossBonusUsd);
+  });
+
   it("rejects invalid basis-point inputs", () => {
     expect(() => estimateAaveV3Liquidation({ ...base, liquidationBonusBps: 10_000 })).toThrow();
   });
