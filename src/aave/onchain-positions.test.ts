@@ -14,6 +14,7 @@ const reserves: Parameters<typeof buildScreeningPairs>[0] = [
     isCollateral: true,
     liquidationThreshold: "8250",
     liquidationBonus: "10500",
+    liquidationProtocolFee: "1000",
     isActive: true,
     isFrozen: false,
     oraclePriceBase: "200000000000",
@@ -55,6 +56,7 @@ describe("buildScreeningPairs", () => {
         debtDecimals: 6,
         debtValueBase: "100000000",
         liquidationBonus: "10500",
+        liquidationProtocolFee: "1000",
         eModeCompatible: false,
         effectiveLiquidationBonus: "10500"
       }
