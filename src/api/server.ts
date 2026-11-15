@@ -352,7 +352,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         const amountIn = url.searchParams.get("amountIn") ?? "";
         if (!/^0x[0-9a-fA-F]{40}$/.test(tokenIn) ||
             !/^0x[0-9a-fA-F]{40}$/.test(tokenOut) ||
-            !/^[0-9]+$/.test(amountIn) || amountIn.length > 78) {
+            !/^[0-9]+$/.test(amountIn) || amountIn.length > 78 || BigInt(amountIn || "0") <= 0n) {
           send(res, 400, { error: "invalid_quote_parameters", message: "Provide tokenIn, tokenOut, and positive integer amountIn in token base units." });
           return;
         }
