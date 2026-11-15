@@ -53,7 +53,7 @@ The deployed service exposes:
 - `GET /api/v1/opportunities?limit=20` — recheck up to 20 previously flagged borrowers on-chain and return possible collateral/debt pairs; bounded to five requests per minute and cached briefly.
 - `GET /api/v1/borrowers?limit=200` — stored borrower snapshots.
 - `GET /api/v1/risk?limit=100` — lowest-health-factor-first risk feed with snapshot age/freshness.
-- `GET /api/v1/discovery/subgraph` — up to 1,000 recent Aave V3 Borrow events, deduplicated to borrower addresses; requires `AAVE_SUBGRAPH_API_KEY` in Render environment; the live indexer syncs it every `AAVE_SUBGRAPH_SYNC_INTERVAL_MS` (default 900000 ms).
+- `GET /api/v1/discovery/subgraph` — up to 1,000 recent Aave V3 Borrow events, deduplicated to borrower addresses; requires `AAVE_SUBGRAPH_API_KEY` in the Render environment (also accepts `GRAPH_API_KEY` or `THE_GRAPH_API_KEY`); the live indexer syncs it every `AAVE_SUBGRAPH_SYNC_INTERVAL_MS` (default 900000 ms).
 - `GET /api/v1/quote/uniswap-v3?tokenIn=0x...&tokenOut=0x...&amountIn=1000000&fee=500` — single-pool Uniswap V3 quote; amount is in token base units.
 - `GET /api/v1/simulation/status` — states whether full transaction simulation is configured (currently no).
 - `GET /api/v1/candidates?limit=100` — stored snapshots currently flagged below HF 1.
