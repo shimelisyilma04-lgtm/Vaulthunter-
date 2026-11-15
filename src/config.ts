@@ -14,8 +14,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   ETHEREUM_RPC_URL: z.string().url().optional(),
-  ETHEREUM_FORK_RPC_URL: z.string().url().optional(),
-  VAULTHUNTER_SIMULATION_API_TOKEN: z.string().min(32).optional(),
+  ETHEREUM_FORK_RPC_URL: z.preprocess((value) => value === "" ? undefined : value, z.string().url().optional()),
+  VAULTHUNTER_SIMULATION_API_TOKEN: z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(32).optional()),
   DATABASE_URL: z.string().url().optional(),
   AAVE_SUBGRAPH_API_KEY: z.preprocess(
     (value) => typeof value === "string"
