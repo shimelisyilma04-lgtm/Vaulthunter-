@@ -30,7 +30,7 @@ const RATE_WINDOW_MS = 60_000;
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
   if (pathname === "/api/v1/simulation/fork") return { key: "fork-simulation", max: 5 };
-  if (pathname === "/api/v1/opportunities") return { key: "opportunities", max: 5 };
+  if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
@@ -38,10 +38,8 @@ function rateLimitFor(pathname: string): { key: string; max: number } {
 }
 
 function rateLimitExceeded(req: IncomingMessage, pathname: string): number | null {
-  const forwarded = req.headers["x-forwarded-for"];
-  const client = typeof forwarded === "string"
-    ? forwarded.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown"
-    : req.socket.remoteAddress || "unknown";
+  // Do not trust caller-supplied X-Forwarded-For values for rate-limit identity.
+  const client = req.socket.remoteAddress || "unknown";
   const policy = rateLimitFor(pathname);
   const key = `${client}:${policy.key}`;
   const now = Date.now();
@@ -113,8 +111,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, OPTIONS",
-        "access-control-allow-headers": "content-type"
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type, authorization"
       });
       res.end();
       return;
@@ -153,7 +151,13 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 415, { error: "unsupported_media_type", message: "Use application/json." });
           return;
         }
-        const body = await readJsonBody(req);
+        let body: Record<string, unknown>;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
+          return;
+        }
         if (typeof body.to !== "string" || typeof body.data !== "string" ||
             (body.value !== undefined && typeof body.value !== "string") ||
             (body.from !== undefined && typeof body.from !== "string")) {
