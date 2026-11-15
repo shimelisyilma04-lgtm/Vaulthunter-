@@ -55,7 +55,7 @@ export function buildScreeningPairs(
   const pairs = [];
   for (const supply of collateral) {
     for (const debt of debts) {
-      if (supply.asset.toLowerCase() === debt.asset.toLowerCase()) continue;
+      // Same-asset supply/debt combinations are not excluded by Aave V3's liquidation logic.
       pairs.push({
         collateralAsset: supply.asset,
         collateralSymbol: supply.symbol,
