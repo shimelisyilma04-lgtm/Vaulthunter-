@@ -141,7 +141,7 @@
       document.getElementById('apiBadge').textContent=liveScan?'LIVE RPC SCAN · READ ONLY':status.rpcConfigured?'RPC SET · SCAN UNAVAILABLE':'API ONLINE · RPC NOT SET';
       const indexerNote=!status.indexerEnabled
         ?(status.durableStorageConfigured?'The live indexer is switched off.':'Indexing is paused until durable PostgreSQL storage is connected.')
-        :'Recent-window live indexing is running with '+(status.storageBackend||'configured storage')+'. Historical market coverage is incomplete; only discovered borrowers are ranked. Broader historical discovery is a separate integration.';
+        :'Recent-window live indexing is running with '+(status.storageBackend||'configured storage')+'. Historical market coverage is incomplete; only discovered borrowers are ranked. '+(status.historicalDiscoveryConfigured?'Aave subgraph discovery is configured.':'Aave subgraph discovery is not configured yet; add AAVE_SUBGRAPH_API_KEY in Render Environment to broaden borrower discovery.');
       document.getElementById('apiNotice').innerHTML='<span>ⓘ</span><div><b>'+(liveScan?'Live Ethereum scan completed.':status.rpcConfigured?'Ethereum RPC is configured, but the scan did not return.':'API is online; Ethereum RPC is not configured.')+'</b> '+(liveScan?'Results cover only recent Borrow events from blocks '+liveScan.fromBlock+'–'+liveScan.toBlock+'.':snap.length?'Showing indexed Aave borrower snapshots.':'No live borrower data is available yet.')+' '+indexerNote+' This is monitoring data, not a promise of liquidation profit.</div>';
       document.getElementById('metricBorrowers').textContent=status.counts.knownBorrowers.toLocaleString();
       document.getElementById('metricAtRisk').textContent=snap.length.toLocaleString();
@@ -160,7 +160,7 @@
       const body=document.getElementById('borrowerRows');
       body.innerHTML=displayRows.map(x=>{
         const hf=Number(x.healthFactorWad)/1e18;
-        const level=liveScan?'Critical':risk(hf),cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
+        const level=risk(hf),cls=level==='Critical'?'high':level==='Lower'?'safe':'watch';
         return '<tr><td class="address" title="'+esc(x.address)+'">'+esc(shortAddress(x.address))+'</td><td>'+hf.toFixed(4)+'</td><td>'+fmtUsd(x.totalCollateralBase)+'</td><td>'+fmtUsd(x.totalDebtBase)+'</td><td><span class="pill '+cls+'">'+level+'</span></td><td><button class="details-button" data-user="'+esc(x.address)+'" type="button">View positions</button></td></tr>';
       }).join('')||'<tr><td colspan="6">No qualifying accounts in the recent scan window. This does not mean no risky accounts exist elsewhere on Aave.</td></tr>';
       filter.dispatchEvent(new Event('input'));
