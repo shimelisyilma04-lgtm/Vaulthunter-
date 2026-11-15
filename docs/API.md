@@ -27,7 +27,8 @@ VaultHunter exposes read-only market/indexer endpoints plus an optional, bearer-
 | GET | `/api/v1/execution-costs?... ` | Integer-based conservative execution-cost budget in USD cents |
 | GET | `/api/v1/estimate?... ` | Caller-input Aave liquidation screening estimate |
 | GET | `/api/v1/simulation/status` | Fork simulator configuration status |
-| POST | `/api/v1/simulation/fork` | Read-only `eth_call` and gas estimate for caller-supplied calldata against a verified Anvil fork |\n| POST | `/api/v1/simulation/aave-liquidation` | Build and simulate a direct-funded Aave V3 `liquidationCall` on the fork |
+| POST | `/api/v1/simulation/fork` | Read-only `eth_call` and gas estimate for caller-supplied calldata against a verified Anvil fork |
+| POST | `/api/v1/simulation/aave-liquidation` | Build and simulate a direct-funded Aave V3 `liquidationCall` on the fork |
 
 ## eMode-aware position and estimate behavior
 
