@@ -3,6 +3,7 @@ import { Contract, JsonRpcProvider, getAddress } from "ethers";
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const DATA_PROVIDER = "0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3";
+const AAVE_ORACLE = "0x54586bE62E3c3580375aE3723C145253060Ca0C2";
 const WAD = 10n ** 18n;
 
 const DATA_PROVIDER_ABI = [
@@ -12,13 +13,20 @@ const DATA_PROVIDER_ABI = [
 ] as const;
 
 const POOL_ABI = [
-  "function getUserAccountData(address user) view returns (uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor)"
+  "function getUserAccountData(address user) view returns (uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor)",
+  "function getUserEMode(address user) view returns (uint256)"
 ] as const;
 
 interface ReserveToken {
   symbol: string;
   tokenAddress: string;
 }
+
+const ORACLE_ABI = [
+  "function getAssetPrice(address asset) view returns (uint256)",
+  "function BASE_CURRENCY() view returns (address)",
+  "function BASE_CURRENCY_UNIT() view returns (uint256)"
+] as const;
 
 interface ReservePosition {
   asset: string;
@@ -105,20 +113,27 @@ export async function fetchOnchainAavePositions(
     const observedBlock = Math.max(0, head - confirmations);
     const dataProvider = new Contract(DATA_PROVIDER, DATA_PROVIDER_ABI, provider);
     const pool = new Contract(POOL, POOL_ABI, provider);
-    const [tokensRaw, accountRaw] = await Promise.all([
+    const oracle = new Contract(AAVE_ORACLE, ORACLE_ABI, provider);
+    const [tokensRaw, accountRaw, eModeRaw, baseCurrencyRaw, baseUnitRaw] = await Promise.all([
       dataProvider.getFunction("getAllReservesTokens").staticCall({ blockTag: observedBlock }),
-      pool.getFunction("getUserAccountData").staticCall(user, { blockTag: observedBlock })
+      pool.getFunction("getUserAccountData").staticCall(user, { blockTag: observedBlock }),
+      pool.getFunction("getUserEMode").staticCall(user, { blockTag: observedBlock }),
+      oracle.getFunction("BASE_CURRENCY").staticCall({ blockTag: observedBlock }),
+      oracle.getFunction("BASE_CURRENCY_UNIT").staticCall({ blockTag: observedBlock })
     ]);
     const tokens = tokensRaw as readonly ReserveToken[];
     const account = accountRaw as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
+    const baseCurrencyUnit = BigInt(baseUnitRaw as bigint);
+    if (baseCurrencyUnit <= 0n) throw new Error("Aave oracle returned an invalid base-currency unit.");
     const reserves: ReservePosition[] = [];
     for (let offset = 0; offset < tokens.length; offset += 5) {
       const batch = tokens.slice(offset, offset + 5);
       const rows = await Promise.all(batch.map(async (token) => {
         const asset = getAddress(token.tokenAddress);
-        const [positionRaw, configRaw] = await Promise.all([
+        const [positionRaw, configRaw, priceRaw] = await Promise.all([
           dataProvider.getFunction("getUserReserveData").staticCall(asset, user, { blockTag: observedBlock }),
-          dataProvider.getFunction("getReserveConfigurationData").staticCall(asset, { blockTag: observedBlock })
+          dataProvider.getFunction("getReserveConfigurationData").staticCall(asset, { blockTag: observedBlock }),
+          oracle.getFunction("getAssetPrice").staticCall(asset, { blockTag: observedBlock })
         ]);
         const position = positionRaw as readonly [bigint,bigint,bigint,bigint,bigint,bigint,bigint,bigint,boolean];
         const reserveConfig = configRaw as readonly [bigint,bigint,bigint,bigint,bigint,boolean,boolean,boolean,boolean,boolean];
@@ -130,7 +145,7 @@ export async function fetchOnchainAavePositions(
         return {
           asset,
           symbol: token.symbol,
-          decimals: Number(reserveConfig[0]),
+          decimals,
           suppliedBalance: suppliedBalance.toString(),
           stableDebt: stableDebt.toString(),
           variableDebt: variableDebt.toString(),
@@ -144,7 +159,7 @@ export async function fetchOnchainAavePositions(
       }));
       reserves.push(...rows.filter((row): row is ReservePosition => row !== null));
     }
-    const healthFactorWad = account[5].toString();
+    const healthFactorWad = account[5].toString();\n    const userEModeCategory = Number(eModeRaw as bigint);
     const liquidationEligibleAtBlock = account[1] > 0n && account[5] > 0n && account[5] < WAD;
     return {
       user,
@@ -159,7 +174,7 @@ export async function fetchOnchainAavePositions(
       reserves,
       screeningPairs: buildScreeningPairs(reserves, healthFactorWad),
       source: "aave-v3-protocol-data-provider",
-      warning: "These are confirmed-block on-chain balances and possible collateral/debt combinations, not proof a liquidation call will succeed or be profitable. Prices, eMode rules, close factor, protocol fee, flash-loan availability, DEX route, gas and MEV still require transaction-level validation. Borrower discovery remains limited to addresses already known to VaultHunter."
+      warning: "Balances and Aave oracle prices are read at one confirmed block. Base-currency values are not automatically USD unless the market base currency is USD. A non-zero eMode category can override price sources and liquidation parameters; this response does not resolve category-specific liquidation rules. Pairs are screening combinations only, not proof a liquidation call will succeed or be profitable. Close factor, protocol fee, flash-loan availability, DEX route, gas and MEV still require transaction-level validation. Borrower discovery remains limited to addresses already known to VaultHunter."
     };
   } finally {
     await provider.destroy();
