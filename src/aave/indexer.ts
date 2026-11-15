@@ -185,10 +185,12 @@ export async function runAaveIndexerPass(
     // The Graph provides discovery only; every position is still refreshed from on-chain RPC below.
     if (config.AAVE_SUBGRAPH_API_KEY &&
         Date.now() - lastSubgraphSyncAt >= config.AAVE_SUBGRAPH_SYNC_INTERVAL_MS) {
-      lastSubgraphSyncAt = Date.now();
       try {
         const discovery = await discoverAaveBorrowersFromSubgraph(config.AAVE_SUBGRAPH_API_KEY);
         await store.upsertDiscoveredBorrowers(chainId, poolAddress, discovery.addresses);
+        // Advance the sync clock only after a successful fetch and persistence.
+        // Failed requests should retry on the next indexer pass, not wait 15 minutes.
+        lastSubgraphSyncAt = Date.now();
         console.info(JSON.stringify({
           source: discovery.source,
           eventsRead: discovery.eventsRead,
