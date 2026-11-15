@@ -17,13 +17,15 @@ const dashboardPath = join(process.cwd(), "dashboard", "index.html");
 let scanCache: { createdAt: number; lookbackBlocks: number; data: Awaited<ReturnType<typeof scanAaveBorrowers>> } | null = null;
 let marketCache: { createdAt: number; data: Awaited<ReturnType<typeof fetchAaveMarketSnapshot>> } | null = null;
 const scanInFlight = new Map<number, Promise<Awaited<ReturnType<typeof scanAaveBorrowers>>>>();
+let opportunitiesCache: { createdAt: number; limit: number; data: Record<string, unknown> } | null = null;
+const opportunitiesInFlight = new Map<number, Promise<Record<string, unknown>>>();
 
 type RateBucket = { startedAt: number; count: number };
 const rateBuckets = new Map<string, RateBucket>();
 const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
-  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
+  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };\n  if (pathname === "/api/v1/opportunities") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
@@ -244,6 +246,68 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         } catch (error) {
           send(res, 502, { error: "subgraph_unavailable", message: error instanceof Error ? error.message : "Aave subgraph query failed" });
         }
+        return;
+      }
+      if (url.pathname === "/api/v1/opportunities") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for live opportunity revalidation." });
+          return;
+        }
+        const requestedLimit = limitFrom(url, 10, 20);
+        if (opportunitiesCache && opportunitiesCache.limit === requestedLimit &&
+            Date.now() - opportunitiesCache.createdAt < 15_000) {
+          send(res, 200, { ...opportunitiesCache.data, cached: true });
+          return;
+        }
+        let pending = opportunitiesInFlight.get(requestedLimit);
+        if (!pending) {
+          pending = (async () => {
+            // Only recheck accounts previously flagged below HF 1 by the indexer.
+            // Each account is then refreshed from Aave at its own confirmed block.
+            const flagged = await store.listBorrowerSnapshots(CHAIN_ID, POOL, requestedLimit, true);
+            const checked: Array<Record<string, unknown>> = [];
+            for (let offset = 0; offset < flagged.length; offset += 3) {
+              const batch = flagged.slice(offset, offset + 3);
+              const results = await Promise.all(batch.map(async (row) => {
+                try {
+                  const position = await fetchOnchainAavePositions(
+                    config.ETHEREUM_RPC_URL!, row.address, config.AAVE_INDEXER_CONFIRMATIONS
+                  );
+                  return {
+                    user: position.user,
+                    healthFactor: position.healthFactor,
+                    healthFactorWad: position.healthFactorWad,
+                    observedBlock: position.observedBlock,
+                    totalDebtBase: position.totalDebtBase,
+                    totalCollateralBase: position.totalCollateralBase,
+                    liquidationEligibleAtBlock: position.liquidationEligibleAtBlock,
+                    screeningPairs: position.screeningPairs,
+                    source: position.source
+                  } as Record<string, unknown>;
+                } catch (error) {
+                  return {
+                    user: row.address,
+                    recheckError: error instanceof Error ? error.message : "On-chain recheck failed"
+                  } as Record<string, unknown>;
+                }
+              }));
+              checked.push(...results);
+            }
+            const data = {
+              source: "aave-v3-confirmed-block-revalidation",
+              checkedAccounts: checked.length,
+              eligibleAccounts: checked.filter((row) => row.liquidationEligibleAtBlock === true).length,
+              pairCount: checked.reduce((sum, row) => sum + (Array.isArray(row.screeningPairs) ? row.screeningPairs.length : 0), 0),
+              data: checked,
+              warning: "Only previously discovered accounts with an earlier HF-below-1 snapshot are rechecked. Each account is read at its own confirmed block. Pairs are screening combinations only; price-oracle constraints, eMode, close factor, protocol fee, flash liquidity, DEX route, gas, MEV and complete transaction simulation remain unverified. No transaction is signed or submitted."
+            };
+            opportunitiesCache = { createdAt: Date.now(), limit: requestedLimit, data };
+            return data;
+          })().finally(() => { opportunitiesInFlight.delete(requestedLimit); });
+          opportunitiesInFlight.set(requestedLimit, pending);
+        }
+        const data = await pending;
+        send(res, 200, { ...data, cached: false });
         return;
       }
       if (url.pathname === "/api/v1/risk") {
