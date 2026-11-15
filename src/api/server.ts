@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import type { AaveStorePort } from "../aave/store.js";
@@ -73,7 +74,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type"
+    "access-control-allow-headers": "content-type, authorization"
   });
   res.end(JSON.stringify(body));
 }
@@ -134,8 +135,17 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
     }
     try {
       if (isForkSimulationPost) {
-        if (!config.ETHEREUM_FORK_RPC_URL) {
-          send(res, 503, { error: "fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL to an isolated Anvil/Hardhat Ethereum-mainnet fork RPC. Do not use a wallet or mainnet transaction broadcaster." });
+        if (!config.ETHEREUM_FORK_RPC_URL || !config.VAULTHUNTER_SIMULATION_API_TOKEN) {
+          send(res, 503, { error: "fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL and a strong VAULTHUNTER_SIMULATION_API_TOKEN. Use an isolated Anvil/Hardhat fork, never a mainnet transaction broadcaster." });
+          return;
+        }
+        const suppliedToken = req.headers.authorization?.startsWith("Bearer ")
+          ? req.headers.authorization.slice(7)
+          : "";
+        const expectedToken = Buffer.from(config.VAULTHUNTER_SIMULATION_API_TOKEN);
+        const receivedToken = Buffer.from(suppliedToken);
+        if (receivedToken.length !== expectedToken.length || !timingSafeEqual(receivedToken, expectedToken)) {
+          send(res, 401, { error: "unauthorized", message: "A valid simulation bearer token is required." });
           return;
         }
         if (!String(req.headers["content-type"] ?? "").toLowerCase().includes("application/json")) {
@@ -183,7 +193,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           dexQuoteProvider: config.ETHEREUM_RPC_URL ? "uniswap-v3-quoter-v2" : "not-configured",
           historicalDiscoveryProvider: config.AAVE_SUBGRAPH_API_KEY ? "aave-protocol-subgraph-v3" : "not-configured",
           historicalDiscoveryConfigured: Boolean(config.AAVE_SUBGRAPH_API_KEY),
-          forkSimulationConfigured: Boolean(config.ETHEREUM_FORK_RPC_URL),
+          forkSimulationConfigured: Boolean(config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN),
           checkpoint: stats.checkpoint,
           counts: {
             borrowEvents: stats.eventCount,
@@ -457,8 +467,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       }
       if (url.pathname === "/api/v1/simulation/status") {
         send(res, 200, {
-          configured: Boolean(config.ETHEREUM_FORK_RPC_URL),
-          status: config.ETHEREUM_FORK_RPC_URL ? "fork_rpc_configured" : "awaiting_fork_rpc",
+          configured: Boolean(config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN),
+          status: config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN ? "fork_rpc_configured" : "awaiting_fork_configuration",
           simulationEndpoint: "POST /api/v1/simulation/fork",
           executionEnabled: false,
           transactionSubmissionEnabled: false,
