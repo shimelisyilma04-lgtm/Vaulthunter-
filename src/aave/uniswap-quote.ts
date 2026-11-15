@@ -164,6 +164,20 @@ export async function quoteUniswapV3BestExactInput(
 }
 
 
+export function enumerateUniswapV3FeeTiers(hops: number): number[][] {
+  if (!Number.isInteger(hops) || hops < 1 || hops > 3) {
+    throw new Error("hops must be an integer from 1 to 3");
+  }
+  const tiers = [100, 500, 3000, 10000] as const;
+  let combinations: number[][] = [[]];
+  for (let hop = 0; hop < hops; hop++) {
+    const expanded: number[][] = [];
+    for (const prefix of combinations) for (const fee of tiers) expanded.push([...prefix, fee]);
+    combinations = expanded;
+  }
+  return combinations;
+}
+
 export async function quoteUniswapV3BestPath(
   rpcUrl: string,
   input: { tokens: string[]; amountIn: string }
@@ -197,13 +211,7 @@ export async function quoteUniswapV3BestPath(
     if (network.chainId !== 1n) throw new Error("Uniswap V3 path quotes require Ethereum mainnet (chain ID 1)");
     const blockNumber = await provider.getBlockNumber();
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, provider);
-    const tiers = [100, 500, 3000, 10000] as const;
-    const combinations: number[][] = [[]];
-    for (let hop = 0; hop < tokens.length - 1; hop++) {
-      const expanded: number[][] = [];
-      for (const prefix of combinations) for (const fee of tiers) expanded.push([...prefix, fee]);
-      combinations.splice(0, combinations.length, ...expanded);
-    }
+    const combinations = enumerateUniswapV3FeeTiers(tokens.length - 1);
     const candidates = await Promise.all(combinations.map(async (fees) => {
       try {
         const types: string[] = ["address"];
