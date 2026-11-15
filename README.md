@@ -58,6 +58,7 @@ The deployed service exposes:
 - `GET /api/v1/discovery/subgraph` — up to 1,000 recent Aave V3 Borrow events, deduplicated to borrower addresses; requires `AAVE_SUBGRAPH_API_KEY` in the Render environment (also accepts `GRAPH_API_KEY` or `THE_GRAPH_API_KEY`); the live indexer syncs it every `AAVE_SUBGRAPH_SYNC_INTERVAL_MS` (default 900000 ms).
 - `GET /api/v1/quote/uniswap-v3?tokenIn=0x...&tokenOut=0x...&amountIn=1000000&fee=500` — single-pool Uniswap V3 quote; amount is in token base units.
 - `GET /api/v1/quote/uniswap-v3/best?tokenIn=0x...&tokenOut=0x...&amountIn=1000000` — quotes fee tiers 100, 500, 3000, and 10000 at one pinned block; returns every available pool quote and the highest raw output.
+- `GET /api/v1/quote/uniswap-v3/path?tokens=0xTokenA,0xTokenB,0xTokenC&amountIn=1000000` — checks all 16 fee-tier combinations for a two-hop path (up to 64 for three hops) at one block.
 - `GET /api/v1/execution-costs?...` — integer-based conservative USD-cent cost and net-profit budget. Required values: `grossProfitUsdCents`, `gasLimit`, `maxFeePerGasWei`, `nativeAssetPriceUsdWad`, `flashLoanPrincipalUsdCents`, `swapNotionalUsdCents`, and `builderFeeUsdCents`. Optional basis points: `flashLoanFeeBps`, `swapFeeBps`, `slippageBps`, `safetyBufferBps`.
 - `GET /api/v1/simulation/status` — reports fork simulation configuration.
 - `POST /api/v1/simulation/fork` — accepts `{ "to": "0x...", "data": "0x...", "value": "0", "from": "0x..." }` with `Authorization: Bearer ...`; performs `eth_call` and `eth_estimateGas` only.
