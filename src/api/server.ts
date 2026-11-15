@@ -7,7 +7,8 @@ import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
-import { quoteUniswapV3BestExactInput, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
+import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
+import { simulateForkCall } from "../aave/fork-simulation.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 
@@ -26,8 +27,9 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
+  if (pathname === "/api/v1/simulation/fork") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities") return { key: "opportunities", max: 5 };
-  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
+  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
   return { key: "general-api", max: 300 };
@@ -70,7 +72,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type"
   });
   res.end(JSON.stringify(body));
@@ -88,8 +90,24 @@ function lookbackBlocksFrom(url: URL): number {
     : config.AAVE_SCAN_LOOKBACK_BLOCKS;
 }
 
+
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 20_000) throw new Error("Request body exceeds the 20 KB limit");
+    chunks.push(buffer);
+  }
+  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Request body must be a JSON object");
+  return parsed as Record<string, unknown>;
+}
+
 export function startHttpServer(store: AaveStorePort): ReturnType<typeof createServer> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url ?? "/", "http://" + (req.headers.host ?? "localhost"));
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "access-control-allow-origin": "*",
@@ -99,12 +117,11 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       res.end();
       return;
     }
-    if (req.method !== "GET") {
-      send(res, 405, { error: "method_not_allowed", message: "VaultHunter API is read-only." });
+    const isForkSimulationPost = req.method === "POST" && url.pathname === "/api/v1/simulation/fork";
+    if (req.method !== "GET" && !isForkSimulationPost) {
+      send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
     }
-
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const retryAfter = rateLimitExceeded(req, url.pathname);
     if (retryAfter !== null) {
       res.setHeader("retry-after", String(retryAfter));
@@ -116,6 +133,34 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       return;
     }
     try {
+      if (isForkSimulationPost) {
+        if (!config.ETHEREUM_FORK_RPC_URL) {
+          send(res, 503, { error: "fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL to an isolated Anvil/Hardhat Ethereum-mainnet fork RPC. Do not use a wallet or mainnet transaction broadcaster." });
+          return;
+        }
+        if (!String(req.headers["content-type"] ?? "").toLowerCase().includes("application/json")) {
+          send(res, 415, { error: "unsupported_media_type", message: "Use application/json." });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (typeof body.to !== "string" || typeof body.data !== "string" ||
+            (body.value !== undefined && typeof body.value !== "string") ||
+            (body.from !== undefined && typeof body.from !== "string")) {
+          send(res, 400, { error: "invalid_simulation_request", message: "Provide to and data strings, with optional value and from strings." });
+          return;
+        }
+        try {
+          const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL, {
+            to: body.to, data: body.data,
+            ...(typeof body.value === "string" ? { value: body.value } : {}),
+            ...(typeof body.from === "string" ? { from: body.from } : {})
+          }, config.AAVE_INDEXER_CONFIRMATIONS);
+          send(res, 200, result);
+        } catch (error) {
+          send(res, 422, { error: "fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Fork call reverted or simulation failed", transactionSubmitted: false });
+        }
+        return;
+      }
       if (url.pathname === "/healthz") {
         send(res, 200, { ok: true, service: "vaulthunter-api", mode: "read-only" });
         return;
@@ -138,7 +183,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           dexQuoteProvider: config.ETHEREUM_RPC_URL ? "uniswap-v3-quoter-v2" : "not-configured",
           historicalDiscoveryProvider: config.AAVE_SUBGRAPH_API_KEY ? "aave-protocol-subgraph-v3" : "not-configured",
           historicalDiscoveryConfigured: Boolean(config.AAVE_SUBGRAPH_API_KEY),
-          forkSimulationConfigured: false,
+          forkSimulationConfigured: Boolean(config.ETHEREUM_FORK_RPC_URL),
           checkpoint: stats.checkpoint,
           counts: {
             borrowEvents: stats.eventCount,
@@ -342,6 +387,28 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         });
         return;
       }
+      if (url.pathname === "/api/v1/quote/uniswap-v3/path") {
+        if (!config.ETHEREUM_RPC_URL) {
+          send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for multi-hop Uniswap quotes." });
+          return;
+        }
+        const tokensRaw = url.searchParams.get("tokens") ?? "";
+        const tokens = tokensRaw.split(",").map((token) => token.trim()).filter(Boolean);
+        const amountIn = url.searchParams.get("amountIn") ?? "";
+        if (tokens.length < 2 || tokens.length > 4 ||
+            tokens.some((token) => !/^0x[0-9a-fA-F]{40}$/.test(token)) ||
+            !/^[0-9]+$/.test(amountIn) || amountIn.length > 78 || BigInt(amountIn || "0") <= 0n) {
+          send(res, 400, { error: "invalid_path_quote_parameters", message: "Provide 2–4 comma-separated token addresses and positive integer amountIn in input-token base units." });
+          return;
+        }
+        try {
+          const quote = await quoteUniswapV3BestPath(config.ETHEREUM_RPC_URL, { tokens, amountIn });
+          send(res, 200, quote);
+        } catch (error) {
+          send(res, 502, { error: "path_quote_unavailable", message: error instanceof Error ? error.message : "Uniswap path quote scan failed" });
+        }
+        return;
+      }
       if (url.pathname === "/api/v1/quote/uniswap-v3/best") {
         if (!config.ETHEREUM_RPC_URL) {
           send(res, 503, { error: "rpc_not_configured", message: rpcConfigError ?? "Ethereum RPC is required for on-chain Uniswap quotes." });
@@ -390,9 +457,13 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       }
       if (url.pathname === "/api/v1/simulation/status") {
         send(res, 200, {
-          configured: false, executionEnabled: false, status: "not_configured",
-          required: ["forked Ethereum state at a pinned block", "complete liquidation transaction calldata", "flash-loan and DEX callback path", "isolated simulation runner and gas accounting"],
-          warning: "VaultHunter does not yet simulate the complete liquidation transaction. A Uniswap quote alone is not a simulation. Do not treat a positive estimate or quote as executable."
+          configured: Boolean(config.ETHEREUM_FORK_RPC_URL),
+          status: config.ETHEREUM_FORK_RPC_URL ? "fork_rpc_configured" : "awaiting_fork_rpc",
+          simulationEndpoint: "POST /api/v1/simulation/fork",
+          executionEnabled: false,
+          transactionSubmissionEnabled: false,
+          required: ["ETHEREUM_FORK_RPC_URL pointing to an isolated Ethereum-mainnet fork", "complete liquidation transaction calldata from a separately audited executor", "flash-loan and DEX callback path deployed on that fork"],
+          warning: "The fork endpoint performs eth_call and eth_estimateGas only. It does not deploy an executor, construct liquidation calldata, sign transactions, or submit transactions."
         });
         return;
       }
