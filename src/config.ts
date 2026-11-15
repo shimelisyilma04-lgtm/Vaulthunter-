@@ -14,6 +14,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   ETHEREUM_RPC_URL: z.string().url().optional(),
+  ETHEREUM_FORK_RPC_URL: z.string().url().optional(),
   DATABASE_URL: z.string().url().optional(),
   AAVE_SUBGRAPH_API_KEY: z.preprocess(
     (value) => typeof value === "string"
