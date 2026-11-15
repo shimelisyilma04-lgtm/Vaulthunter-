@@ -379,6 +379,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
                     healthFactor: position.healthFactor,
                     healthFactorWad: position.healthFactorWad,
                     userEModeCategory: position.userEModeCategory,
+                    eModeCategoryData: position.eModeCategoryData,
+                    eModeAwareCalculationReady: position.eModeAwareCalculationReady,
                     baseCurrency: position.baseCurrency,
                     baseCurrencyUnit: position.baseCurrencyUnit,
                     observedBlock: position.observedBlock,
@@ -403,7 +405,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
               eligibleAccounts: checked.filter((row) => row.liquidationEligibleAtBlock === true).length,
               pairCount: checked.reduce((sum, row) => sum + (Array.isArray(row.screeningPairs) ? row.screeningPairs.length : 0), 0),
               data: checked,
-              warning: "Only previously discovered accounts with an earlier HF-below-1 snapshot are rechecked. Each account is read at its own confirmed block. Pairs include Aave oracle base-currency values at each wallet\u2019s confirmed block, but eMode-specific price overrides, close factor, protocol fee, flash liquidity, DEX route, gas, MEV and complete transaction simulation remain unverified. No transaction is signed or submitted."
+              warning: "Only previously discovered accounts with an earlier HF-below-1 snapshot are rechecked. Each account is read at its own confirmed block. Pairs include Aave oracle base-currency values at each wallet\u2019s confirmed block, but non-zero eMode price-source overrides, pair-specific close factor, flash liquidity, DEX route, gas, MEV and complete transaction simulation remain unverified. No transaction is signed or submitted."
             };
             opportunitiesCache = { createdAt: Date.now(), limit: requestedLimit, data };
             return data;
