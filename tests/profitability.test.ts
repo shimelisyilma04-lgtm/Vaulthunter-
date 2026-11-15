@@ -21,7 +21,8 @@ describe("estimateAaveV3Liquidation", () => {
     const result = estimateAaveV3Liquidation(base);
     expect(result.eligibleByHealthFactor).toBe(true);
     expect(result.closeFactorBps).toBe(5_000);
-    expect(result.maxRepayUsd).toBe(2_500);
+    expect(result.maxRepayUsd).toBe(5_000);
+    expect(result.dustRuleSatisfied).toBe(true);
     expect(result.estimatedNetProfitUsd).toBeGreaterThan(0);
   });
 
@@ -40,9 +41,9 @@ describe("estimateAaveV3Liquidation", () => {
     expect(estimateAaveV3Liquidation({ ...base, totalDebtUsd: 0 }).maxRepayUsd).toBe(0);
   });
 
-  it("applies close factor to selected reserve debt, not aggregate account debt", () => {
+  it("applies the account-level close factor and caps by selected reserve debt", () => {
     const result = estimateAaveV3Liquidation({ ...base, totalDebtUsd: 50_000, debtReserveUsd: 4_000 });
-    expect(result.maxRepayUsd).toBe(2_000);
+    expect(result.maxRepayUsd).toBe(4_000);
   });
 
   it("caps repayment by available collateral after the liquidation bonus", () => {
@@ -55,6 +56,30 @@ describe("estimateAaveV3Liquidation", () => {
       collateralAvailableUsd: 2_000
     });
     expect(result.maxRepayUsd).toBeLessThanOrEqual(2_000 / 1.05);
+  });
+
+  it("rejects partial liquidations that would leave debt or collateral dust below $1,000", () => {
+    const result = estimateAaveV3Liquidation({
+      ...base,
+      totalDebtUsd: 10_000,
+      debtReserveUsd: 10_000,
+      collateralReserveUsd: 10_000,
+      collateralAvailableUsd: 5_700
+    });
+    expect(result.maxRepayUsd).toBe(5_000);
+    expect(result.dustRuleSatisfied).toBe(false);
+    expect(result.profitableBeforeExecutionChecks).toBe(false);
+  });
+
+  it("allows a partial liquidation when both remaining balances stay above $1,000", () => {
+    const result = estimateAaveV3Liquidation({
+      ...base,
+      totalDebtUsd: 10_000,
+      debtReserveUsd: 10_000,
+      collateralReserveUsd: 10_000,
+      collateralAvailableUsd: 10_000
+    });
+    expect(result.dustRuleSatisfied).toBe(true);
   });
 
   it("rejects invalid basis-point inputs", () => {
