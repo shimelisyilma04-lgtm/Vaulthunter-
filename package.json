@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "rpc:check": "tsx src/index.ts",
+    "chains:check": "tsx src/chain/check-cli.ts",
     "aave:scan": "tsx src/aave/scan.ts",
     "aave:index:once": "tsx src/aave/indexer-cli.ts --once",
     "aave:index": "tsx src/aave/indexer-cli.ts"
