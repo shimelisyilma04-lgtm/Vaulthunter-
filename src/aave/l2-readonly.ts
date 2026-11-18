@@ -51,10 +51,10 @@ export async function inspectAaveL2Borrower(args: {
     const addressesProvider = new Contract(market.addressesProvider, PROVIDER_ABI, provider);
     const poolAddress = getAddress(await addressesProvider.getFunction("getPool")() as string);
     const pool = new Contract(poolAddress, POOL_ABI, provider);
-    const [account, observedBlock] = await Promise.all([
-      pool.getFunction("getUserAccountData")(getAddress(args.borrower)),
-      provider.getBlockNumber()
-    ]) as [readonly bigint[], number];
+    const observedBlock = await provider.getBlockNumber();
+    const account = await pool.getFunction("getUserAccountData")(
+      getAddress(args.borrower), { blockTag: observedBlock }
+    ) as readonly bigint[];
 
     const collateral = account[0];
     const debt = account[1];

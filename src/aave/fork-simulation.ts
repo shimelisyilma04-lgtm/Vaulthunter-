@@ -10,9 +10,10 @@ export interface ForkSimulationInput {
 export async function simulateForkCall(
   forkRpcUrl: string,
   input: ForkSimulationInput,
-  confirmations = 1
+  confirmations = 1,
+  expectedChainId = 1
 ): Promise<{
-  chainId: 1;
+  chainId: number;
   forkBlock: number;
   safeBlock: number;
   to: string;
@@ -39,11 +40,12 @@ export async function simulateForkCall(
     throw new Error("value is outside the uint256 range");
   }
 
-  const provider = new JsonRpcProvider(forkRpcUrl, 1, { staticNetwork: true });
+  if (![1, 8453, 42161].includes(expectedChainId)) throw new Error("Only Ethereum, Base and Arbitrum fork simulations are supported");
+  const provider = new JsonRpcProvider(forkRpcUrl, expectedChainId, { staticNetwork: true });
   try {
     const network = await provider.getNetwork();
-    if (network.chainId !== 1n) {
-      throw new Error("Fork simulation endpoint must be an Ethereum mainnet fork (chain ID 1)");
+    if (network.chainId !== BigInt(expectedChainId)) {
+      throw new Error(`Fork simulation endpoint must use chain ID ${expectedChainId}`);
     }
     let nodeInfo: unknown;
     try {
@@ -68,7 +70,7 @@ export async function simulateForkCall(
     // Estimate gas on the same isolated fork. This does not sign or submit a transaction.
     const estimatedGas = await provider.send("eth_estimateGas", [tx, toQuantity(safeBlock)]) as string;
     return {
-      chainId: 1,
+      chainId: expectedChainId,
       forkBlock,
       safeBlock,
       to,

@@ -13,6 +13,10 @@ import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3Exa
 import { simulateAaveLiquidationCall, simulateForkCall } from "../aave/fork-simulation.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
+import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../discovery/multichain-events.js";
+import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
+import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
+import { inspectMorphoBluePosition } from "../morpho/blue.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -28,10 +32,10 @@ const rateBuckets = new Map<string, RateBucket>();
 const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
-  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
-  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation") return { key: "fork-simulation", max: 5 };
+  if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
+  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
-  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
+  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
   return { key: "general-api", max: 300 };
@@ -129,7 +133,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       res.end();
       return;
     }
-    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation"].includes(url.pathname);
+    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain"].includes(url.pathname);
     if (req.method !== "GET" && !isForkSimulationPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -170,6 +174,35 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
           return;
         }
+        if (url.pathname === "/api/v1/simulation/multichain") {
+          const network = body.network;
+          const target = network === "base"
+            ? { chainId: 8453, rpcUrl: process.env.BASE_FORK_RPC_URL }
+            : network === "arbitrum"
+              ? { chainId: 42161, rpcUrl: process.env.ARBITRUM_FORK_RPC_URL }
+              : null;
+          if (!target || !target.rpcUrl) {
+            send(res, 503, { error: "multichain_fork_not_configured", message: "Set BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL for a private Anvil fork, and provide network=base or network=arbitrum." });
+            return;
+          }
+          if (typeof body.to !== "string" || typeof body.data !== "string" ||
+              (body.value !== undefined && typeof body.value !== "string") ||
+              (body.from !== undefined && typeof body.from !== "string")) {
+            send(res, 400, { error: "invalid_simulation_request", message: "Provide to and data strings, with optional value and from strings." });
+            return;
+          }
+          try {
+            const result = await simulateForkCall(target.rpcUrl, {
+              to: body.to, data: body.data,
+              ...(typeof body.value === "string" ? { value: body.value } : {}),
+              ...(typeof body.from === "string" ? { from: body.from } : {})
+            }, config.AAVE_INDEXER_CONFIRMATIONS, target.chainId);
+            send(res, 200, { ...result, network, simulationOnly: true, transactionSubmitted: false });
+          } catch (error) {
+            send(res, 422, { error: "multichain_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Fork call reverted or simulation failed", transactionSubmitted: false });
+          }
+          return;
+        }
         if (url.pathname === "/api/v1/simulation/aave-liquidation") {
           if (typeof body.collateralAsset !== "string" || typeof body.debtAsset !== "string" ||
               typeof body.user !== "string" || typeof body.debtToCover !== "string" ||
@@ -207,6 +240,112 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 200, result);
         } catch (error) {
           send(res, 422, { error: "fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Fork call reverted or simulation failed", transactionSubmitted: false });
+        }
+        return;
+      }
+      if (url.pathname === "/api/v1/discovery/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
+          return;
+        }
+        const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
+        const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
+        const [aave, morpho] = await Promise.all([
+          discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
+          discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
+        ]);
+        send(res, 200, {
+          network,
+          lookbackBlocks,
+          source: "live-rpc-recent-protocol-events",
+          completeness: "bounded-recent-event-window",
+          warning: "This is not exhaustive historical discovery. Refresh every borrower and market against current protocol state before estimating or simulating a liquidation.",
+          aave,
+          morpho
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/positions/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
+          return;
+        }
+        const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
+        const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
+        const [aaveDiscovery, morphoDiscovery] = await Promise.all([
+          discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
+          discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
+        ]);
+        const aaveRows: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < aaveDiscovery.borrowers.length; i += 8) {
+          const batch = aaveDiscovery.borrowers.slice(i, i + 8);
+          const rows = await Promise.all(batch.map(async (borrower) => {
+            try {
+              return await inspectAaveL2Borrower({ network, rpcUrl, borrower });
+            } catch (error) {
+              return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
+            }
+          })) as unknown as Array<Record<string, unknown>>;
+          aaveRows.push(...rows);
+        }
+        const morphoRows: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < morphoDiscovery.positions.length; i += 8) {
+          const batch = morphoDiscovery.positions.slice(i, i + 8);
+          const rows = await Promise.all(batch.map(async ({ marketId, borrower }) => {
+            try {
+              return await inspectMorphoBluePosition({ network, rpcUrl, marketId, borrower });
+            } catch (error) {
+              return { protocol: "morpho-blue", network, marketId, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
+            }
+          })) as unknown as Array<Record<string, unknown>>;
+          morphoRows.push(...rows);
+        }
+        send(res, 200, {
+          network,
+          source: "recent-event-discovery-followed-by-live-onchain-position-reads",
+          discoveryWindow: { lookbackBlocks, aaveFromBlock: aaveDiscovery.fromBlock, morphoFromBlock: morphoDiscovery.fromBlock },
+          aave: { discovered: aaveDiscovery.borrowers.length, refreshed: aaveRows.length, eligibleAtRead: aaveRows.filter((row) => row.liquidationEligible === true).length, positions: aaveRows },
+          morpho: { discoveredPositions: morphoDiscovery.positions.length, refreshed: morphoRows.length, eligibleAtRead: morphoRows.filter((row) => row.liquidationEligible === true).length, positions: morphoRows },
+          warning: "These are live read-only account checks at the RPC provider's current block. Event discovery is bounded and may miss older positions. Eligibility can change before execution; no prices, fees, gas, MEV or transaction-level profitability are established here. No transaction is signed or submitted."
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/quote/uniswap-v3/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        const tokenIn = url.searchParams.get("tokenIn") ?? "";
+        const tokenOut = url.searchParams.get("tokenOut") ?? "";
+        const amountIn = url.searchParams.get("amountIn") ?? "";
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
+          return;
+        }
+        if (!/^0x[0-9a-fA-F]{40}$/.test(tokenIn) || !/^0x[0-9a-fA-F]{40}$/.test(tokenOut) ||
+            !/^\\d+$/.test(amountIn) || amountIn.length > 78 || BigInt(amountIn || "0") <= 0n) {
+          send(res, 400, { error: "invalid_quote_parameters", message: "Provide tokenIn, tokenOut and positive amountIn in input-token base units." });
+          return;
+        }
+        try {
+          const quote = await quoteMultiChainUniswapV3({ network, rpcUrl, tokenIn, tokenOut, amountIn });
+          send(res, 200, quote);
+        } catch (error) {
+          send(res, 502, { error: "multichain_quote_unavailable", message: error instanceof Error ? error.message : "Uniswap quote failed" });
         }
         return;
       }

@@ -62,12 +62,13 @@ export async function inspectMorphoBluePosition(args: {
     }
     const morphoAddress = MORPHO_BLUE_ADDRESSES[args.network];
     const morpho = new Contract(morphoAddress, MORPHO_BLUE_ABI, provider);
-    const [params, market, position, blockNumber] = await Promise.all([
-      morpho.getFunction("idToMarketParams")(args.marketId),
-      morpho.getFunction("market")(args.marketId),
-      morpho.getFunction("position")(args.marketId, getAddress(args.borrower)),
-      provider.getBlockNumber()
-    ]) as [readonly unknown[], readonly unknown[], readonly unknown[], number];
+    const blockNumber = await provider.getBlockNumber();
+    const overrides = { blockTag: blockNumber };
+    const [params, market, position] = await Promise.all([
+      morpho.getFunction("idToMarketParams")(args.marketId, overrides),
+      morpho.getFunction("market")(args.marketId, overrides),
+      morpho.getFunction("position")(args.marketId, getAddress(args.borrower), overrides)
+    ]) as [readonly unknown[], readonly unknown[], readonly unknown[]];
 
     const loanToken = getAddress(String(params[0]));
     const collateralToken = getAddress(String(params[1]));
@@ -82,7 +83,7 @@ export async function inspectMorphoBluePosition(args: {
     const oracle = new Contract(oracleAddress, [
       "function price() view returns (uint256)"
     ], provider);
-    const oraclePrice = asBigInt(await oracle.getFunction("price")(), "oracle price");
+    const oraclePrice = asBigInt(await oracle.getFunction("price")({ blockTag: blockNumber }), "oracle price");
     const borrowAssets = totalBorrowShares === 0n
       ? 0n
       : (borrowShares * totalBorrowAssets + totalBorrowShares - 1n) / totalBorrowShares;
