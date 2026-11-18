@@ -222,7 +222,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
           return;
         }
-        const lookbackBlocks = Math.max(1, Math.min(100_000, limitFrom(url, 10_000, 100_000)));
+        const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
+        const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
         const [aave, morpho] = await Promise.all([
           discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
           discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
