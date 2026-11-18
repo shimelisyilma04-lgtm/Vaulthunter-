@@ -1,6 +1,6 @@
 import { Contract, Interface, JsonRpcProvider, getAddress, id } from "ethers";
-import { AAVE_V3_MARKETS, type AaveL2Network } from "./aave/l2-readonly.js";
-import { MORPHO_BLUE_ADDRESSES, type MorphoNetwork } from "./morpho/blue.js";
+import { AAVE_V3_MARKETS, type AaveL2Network } from "../aave/l2-readonly.js";
+import { MORPHO_BLUE_ADDRESSES, type MorphoNetwork } from "../morpho/blue.js";
 
 const PROVIDER_ABI = ["function getPool() view returns (address)"] as const;
 const AAVE_BORROW = new Interface([
