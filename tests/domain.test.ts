@@ -76,10 +76,10 @@ describe("Aave V3 liquidation screening", () => {
     const result = estimateAaveV3Liquidation({
       ...base,
       healthFactor: 0.99,
-      debtReserveUsd: 2_500,
-      collateralReserveUsd: 3_000,
-      collateralAvailableUsd: 3_000,
-      totalDebtUsd: 5_000,
+      debtReserveUsd: 5_500,
+      collateralReserveUsd: 8_000,
+      collateralAvailableUsd: 8_000,
+      totalDebtUsd: 10_000,
       liquidationBonusBps: 500
     });
     expect(result.closeFactorBps).toBe(5_000);
