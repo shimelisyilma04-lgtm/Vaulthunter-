@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isBelowLiquidationThreshold, WAD } from "../src/domain/liquidation.js";
-import { calculateNetProfit } from "../src/domain/profitability.js";
+import { calculateNetProfit, estimateAaveV3Liquidation } from "../src/domain/profitability.js";
 
 describe("liquidation screening", () => {
   it("flags health factors below one", () => {
@@ -42,5 +42,60 @@ describe("profitability", () => {
 
     expect(result.netProfit).toBe(0n);
     expect(result.isCandidate).toBe(false);
+  });
+});
+
+
+describe("Aave V3 liquidation screening", () => {
+  const base = {
+    healthFactor: 0.94,
+    totalDebtUsd: 10_000,
+    debtReserveUsd: 8_000,
+    collateralReserveUsd: 12_000,
+    collateralAvailableUsd: 12_000,
+    liquidationBonusBps: 500,
+    gasCostUsd: 20,
+    flashLoanFeeBps: 5,
+    swapFeeBps: 30,
+    slippageBps: 20,
+    protocolFeeBps: 1_000,
+    safetyBufferBps: 500
+  };
+
+  it("uses the full close factor at or below HF 0.95", () => {
+    expect(estimateAaveV3Liquidation(base).closeFactorBps).toBe(10_000);
+    expect(estimateAaveV3Liquidation({ ...base, healthFactor: 0.950001 }).closeFactorBps).toBe(5_000);
+  });
+
+  it("uses the full close factor when either selected position is below $2,000", () => {
+    expect(estimateAaveV3Liquidation({ ...base, healthFactor: 0.99, debtReserveUsd: 1_999 }).closeFactorBps).toBe(10_000);
+    expect(estimateAaveV3Liquidation({ ...base, healthFactor: 0.99, collateralReserveUsd: 1_999 }).closeFactorBps).toBe(10_000);
+  });
+
+  it("rejects partial liquidations that leave less than $1,000 of debt or collateral", () => {
+    const result = estimateAaveV3Liquidation({
+      ...base,
+      healthFactor: 0.99,
+      debtReserveUsd: 5_500,
+      collateralReserveUsd: 8_000,
+      collateralAvailableUsd: 8_000,
+      totalDebtUsd: 10_000,
+      liquidationBonusBps: 500
+    });
+    expect(result.closeFactorBps).toBe(5_000);
+    expect(result.dustRuleSatisfied).toBe(false);
+    expect(result.profitableBeforeExecutionChecks).toBe(false);
+  });
+
+  it("caps repayment by available collateral after the bonus", () => {
+    const result = estimateAaveV3Liquidation({
+      ...base,
+      debtReserveUsd: 8_000,
+      collateralReserveUsd: 12_000,
+      collateralAvailableUsd: 1_050,
+      liquidationBonusBps: 1_000
+    });
+    expect(result.maxRepayUsd).toBeLessThanOrEqual(1_050 / 1.1);
+    expect(result.collateralSeizedUsd).toBeLessThanOrEqual(1_050 + 1e-8);
   });
 });

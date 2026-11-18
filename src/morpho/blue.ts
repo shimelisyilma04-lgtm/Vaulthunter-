@@ -24,6 +24,9 @@ export interface MorphoPositionSnapshot {
   irm: string;
   lltvWad: string;
   borrowAssets: string;
+  borrowShares: string;
+  totalBorrowAssets: string;
+  totalBorrowShares: string;
   collateralAssets: string;
   oraclePrice: string;
   liquidationEligible: boolean;
@@ -88,8 +91,10 @@ export async function inspectMorphoBluePosition(args: {
       ? 0n
       : (borrowShares * totalBorrowAssets + totalBorrowShares - 1n) / totalBorrowShares;
 
-    // Morpho Blue liquidation threshold: collateral * oraclePrice * LLTV / 1e36.
-    const collateralValueAtLltv = collateral * oraclePrice * lltv / ORACLE_PRICE_SCALE / WAD;
+    // Match Morpho.sol _isHealthy rounding: collateral value is floored first,
+    // then the LLTV multiplication is floored in loan-token base units.
+    const collateralValue = collateral * oraclePrice / ORACLE_PRICE_SCALE;
+    const collateralValueAtLltv = collateralValue * lltv / WAD;
     const liquidationEligible = borrowAssets > 0n && collateralValueAtLltv < borrowAssets;
 
     return {
@@ -103,6 +108,9 @@ export async function inspectMorphoBluePosition(args: {
       irm,
       lltvWad: lltv.toString(),
       borrowAssets: borrowAssets.toString(),
+      borrowShares: borrowShares.toString(),
+      totalBorrowAssets: totalBorrowAssets.toString(),
+      totalBorrowShares: totalBorrowShares.toString(),
       collateralAssets: collateral.toString(),
       oraclePrice: oraclePrice.toString(),
       liquidationEligible,

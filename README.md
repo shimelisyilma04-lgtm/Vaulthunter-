@@ -8,6 +8,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Bounded recent-event scanner for quick checks (configurable 1–10,000 block window; recent Borrow-event discovery only).
 - Read-only HTTP API and live dashboard for service health, indexer status, borrowers, events, scans, automatic candidate rechecks, and liquidation estimates.
 - Conservative Aave V3 liquidation profitability screening calculator with account-level close-factor cap, collateral cap, reserve protocol fee, $1,000 partial-liquidation dust checks, flash-loan, swap, slippage, gas, and safety-buffer inputs.
+- Pure TypeScript Morpho Blue liquidation-math estimator mirroring core LIF and integer rounding for a caller-selected repayment share amount; intentionally not connected to live opportunity ranking until accrued market totals can be simulated and pinned.
 - SQLite-backed incremental Aave V3 historical Borrow-event indexer.
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
 - Current health-factor snapshots and a ranked read-only risk feed for indexed borrowers. Snapshot refresh batches rotate through the full known-borrower set instead of repeatedly refreshing only the first page.
@@ -81,6 +82,8 @@ npm run typecheck
 npm test
 npm run aave:scan
 ```
+
+See [liquidation math and validation boundaries](docs/LIQUIDATION_MATH.md) for protocol formulas and the remaining requirements before any future execution.
 
 ## Safety and scope
 
