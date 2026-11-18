@@ -33,7 +33,7 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
-  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation") return { key: "fork-simulation", max: 5 };
+  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
@@ -133,7 +133,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       res.end();
       return;
     }
-    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation"].includes(url.pathname);
+    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain"].includes(url.pathname);
     if (req.method !== "GET" && !isForkSimulationPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -172,6 +172,35 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           body = await readJsonBody(req);
         } catch (error) {
           send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
+          return;
+        }
+        if (url.pathname === "/api/v1/simulation/multichain") {
+          const network = body.network;
+          const target = network === "base"
+            ? { chainId: 8453, rpcUrl: process.env.BASE_FORK_RPC_URL }
+            : network === "arbitrum"
+              ? { chainId: 42161, rpcUrl: process.env.ARBITRUM_FORK_RPC_URL }
+              : null;
+          if (!target || !target.rpcUrl) {
+            send(res, 503, { error: "multichain_fork_not_configured", message: "Set BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL for a private Anvil fork, and provide network=base or network=arbitrum." });
+            return;
+          }
+          if (typeof body.to !== "string" || typeof body.data !== "string" ||
+              (body.value !== undefined && typeof body.value !== "string") ||
+              (body.from !== undefined && typeof body.from !== "string")) {
+            send(res, 400, { error: "invalid_simulation_request", message: "Provide to and data strings, with optional value and from strings." });
+            return;
+          }
+          try {
+            const result = await simulateForkCall(target.rpcUrl, {
+              to: body.to, data: body.data,
+              ...(typeof body.value === "string" ? { value: body.value } : {}),
+              ...(typeof body.from === "string" ? { from: body.from } : {})
+            }, config.AAVE_INDEXER_CONFIRMATIONS, target.chainId);
+            send(res, 200, { ...result, network, simulationOnly: true, transactionSubmitted: false });
+          } catch (error) {
+            send(res, 422, { error: "multichain_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Fork call reverted or simulation failed", transactionSubmitted: false });
+          }
           return;
         }
         if (url.pathname === "/api/v1/simulation/aave-liquidation") {
