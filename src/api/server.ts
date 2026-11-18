@@ -268,7 +268,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             } catch (error) {
               return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
             }
-          }));
+          })) as unknown as Array<Record<string, unknown>>;
           aaveRows.push(...rows);
         }
         const morphoRows: Array<Record<string, unknown>> = [];
@@ -280,7 +280,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             } catch (error) {
               return { protocol: "morpho-blue", network, marketId, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
             }
-          }));
+          })) as unknown as Array<Record<string, unknown>>;
           morphoRows.push(...rows);
         }
         send(res, 200, {
