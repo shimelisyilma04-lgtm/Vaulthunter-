@@ -13,6 +13,7 @@ import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3Exa
 import { simulateAaveLiquidationCall, simulateForkCall } from "../aave/fork-simulation.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
+import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../discovery/multichain-events.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -28,7 +29,7 @@ const rateBuckets = new Map<string, RateBucket>();
 const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
-  if (pathname === "/api/v1/discovery/subgraph") return { key: "subgraph-discovery", max: 2 };
+  if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
   if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
@@ -208,6 +209,33 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         } catch (error) {
           send(res, 422, { error: "fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Fork call reverted or simulation failed", transactionSubmitted: false });
         }
+        return;
+      }
+      if (url.pathname === "/api/v1/discovery/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
+          return;
+        }
+        const lookbackBlocks = Math.max(1, Math.min(100_000, limitFrom(url, 10_000, 100_000)));
+        const [aave, morpho] = await Promise.all([
+          discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
+          discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
+        ]);
+        send(res, 200, {
+          network,
+          lookbackBlocks,
+          source: "live-rpc-recent-protocol-events",
+          completeness: "bounded-recent-event-window",
+          warning: "This is not exhaustive historical discovery. Refresh every borrower and market against current protocol state before estimating or simulating a liquidation.",
+          aave,
+          morpho
+        });
         return;
       }
       if (url.pathname === "/healthz") {
