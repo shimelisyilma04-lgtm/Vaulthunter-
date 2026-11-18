@@ -14,6 +14,7 @@ import { simulateAaveLiquidationCall, simulateForkCall } from "../aave/fork-simu
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../discovery/multichain-events.js";
+import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -32,7 +33,7 @@ function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
   if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
-  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain"].includes(pathname)) {
+  if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
   return { key: "general-api", max: 300 };
@@ -237,6 +238,33 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           aave,
           morpho
         });
+        return;
+      }
+      if (url.pathname === "/api/v1/quote/uniswap-v3/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        const tokenIn = url.searchParams.get("tokenIn") ?? "";
+        const tokenOut = url.searchParams.get("tokenOut") ?? "";
+        const amountIn = url.searchParams.get("amountIn") ?? "";
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
+          return;
+        }
+        if (!/^0x[0-9a-fA-F]{40}$/.test(tokenIn) || !/^0x[0-9a-fA-F]{40}$/.test(tokenOut) ||
+            !/^\\d+$/.test(amountIn) || amountIn.length > 78 || BigInt(amountIn || "0") <= 0n) {
+          send(res, 400, { error: "invalid_quote_parameters", message: "Provide tokenIn, tokenOut and positive amountIn in input-token base units." });
+          return;
+        }
+        try {
+          const quote = await quoteMultiChainUniswapV3({ network, rpcUrl, tokenIn, tokenOut, amountIn });
+          send(res, 200, quote);
+        } catch (error) {
+          send(res, 502, { error: "multichain_quote_unavailable", message: error instanceof Error ? error.message : "Uniswap quote failed" });
+        }
         return;
       }
       if (url.pathname === "/healthz") {
