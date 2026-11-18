@@ -3,10 +3,24 @@ import { config, rpcConfigError } from "./config.js";
 import { AaveStore } from "./aave/store-factory.js";
 import { runAaveIndexerPass } from "./aave/indexer.js";
 import { startHttpServer } from "./api/server.js";
+import { inspectConfiguredNetworks } from "./chain/multi-chain.js";
 
 const logger = pino({ level: config.LOG_LEVEL });
 const store = new AaveStore(config.VAULTHUNTER_DB_PATH, config.DATABASE_URL);
 const server = startHttpServer(store);
+
+// Base/Arbitrum/Scroll connectivity probe; read-only and never signs or broadcasts.
+void inspectConfiguredNetworks().then((networks) => {
+  if (networks.length === 0) {
+    logger.warn("No Base/Arbitrum/Scroll RPC endpoints configured; multi-chain checks skipped");
+    return;
+  }
+  for (const network of networks) {
+    logger.info(network, "Multi-chain RPC health");
+  }
+}).catch((error) => {
+  logger.error({ error: error instanceof Error ? error.message : String(error) }, "Multi-chain RPC health check failed");
+});
 
 if (rpcConfigError) {
   logger.error({ message: rpcConfigError }, "Ethereum RPC configuration is invalid; API remains online without live scans");
