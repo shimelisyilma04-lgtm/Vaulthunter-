@@ -15,6 +15,8 @@ import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../discovery/multichain-events.js";
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
+import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
+import { inspectMorphoBluePosition } from "../morpho/blue.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -237,6 +239,57 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           warning: "This is not exhaustive historical discovery. Refresh every borrower and market against current protocol state before estimating or simulating a liquidation.",
           aave,
           morpho
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/positions/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: `${network.toUpperCase()}_RPC_URL is not configured.` });
+          return;
+        }
+        const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
+        const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
+        const [aaveDiscovery, morphoDiscovery] = await Promise.all([
+          discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
+          discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
+        ]);
+        const aaveRows: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < aaveDiscovery.borrowers.length; i += 8) {
+          const batch = aaveDiscovery.borrowers.slice(i, i + 8);
+          const rows = await Promise.all(batch.map(async (borrower) => {
+            try {
+              return await inspectAaveL2Borrower({ network, rpcUrl, borrower });
+            } catch (error) {
+              return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
+            }
+          }));
+          aaveRows.push(...rows);
+        }
+        const morphoRows: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < morphoDiscovery.positions.length; i += 8) {
+          const batch = morphoDiscovery.positions.slice(i, i + 8);
+          const rows = await Promise.all(batch.map(async ({ marketId, borrower }) => {
+            try {
+              return await inspectMorphoBluePosition({ network, rpcUrl, marketId, borrower });
+            } catch (error) {
+              return { protocol: "morpho-blue", network, marketId, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
+            }
+          }));
+          morphoRows.push(...rows);
+        }
+        send(res, 200, {
+          network,
+          source: "recent-event-discovery-followed-by-live-onchain-position-reads",
+          discoveryWindow: { lookbackBlocks, aaveFromBlock: aaveDiscovery.fromBlock, morphoFromBlock: morphoDiscovery.fromBlock },
+          aave: { discovered: aaveDiscovery.borrowers.length, refreshed: aaveRows.length, eligibleAtRead: aaveRows.filter((row) => row.liquidationEligible === true).length, positions: aaveRows },
+          morpho: { discoveredPositions: morphoDiscovery.positions.length, refreshed: morphoRows.length, eligibleAtRead: morphoRows.filter((row) => row.liquidationEligible === true).length, positions: morphoRows },
+          warning: "These are live read-only account checks at the RPC provider's current block. Event discovery is bounded and may miss older positions. Eligibility can change before execution; no prices, fees, gas, MEV or transaction-level profitability are established here. No transaction is signed or submitted."
         });
         return;
       }
