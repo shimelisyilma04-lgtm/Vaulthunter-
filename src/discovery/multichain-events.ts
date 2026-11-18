@@ -22,6 +22,7 @@ export interface DiscoveryResult {
   blocksScanned: number;
   borrowers: string[];
   markets: string[];
+  positions: Array<{ marketId: string; borrower: string }>;
   borrowEvents: number;
   collateralEvents: number;
   marketCreatedEvents: number;
@@ -85,6 +86,7 @@ export async function discoverMultichainCandidates(args: {
       blocksScanned: toBlock - fromBlock + 1,
       borrowers: [...borrowers],
       markets: [],
+      positions: [],
       borrowEvents,
       collateralEvents: 0,
       marketCreatedEvents: 0,
@@ -115,6 +117,7 @@ export async function discoverMorphoBlueCandidates(args: {
     const morpho = getAddress(MORPHO_BLUE_ADDRESSES[args.network]);
     const borrowers = new Set<string>();
     const markets = new Set<string>();
+    const positions = new Map<string, { marketId: string; borrower: string }>();
     let borrowEvents = 0;
     let collateralEvents = 0;
     let marketCreatedEvents = 0;
@@ -128,13 +131,21 @@ export async function discoverMorphoBlueCandidates(args: {
       ]);
       for (const log of borrows) {
         const owner = log.topics[2];
-        if (owner && owner.length === 66) borrowers.add(getAddress("0x" + owner.slice(26)));
+        if (owner && owner.length === 66) {
+          const borrower = getAddress("0x" + owner.slice(26));
+          borrowers.add(borrower);
+          if (log.topics[1]) positions.set(`${log.topics[1]}:${borrower.toLowerCase()}`, { marketId: log.topics[1], borrower });
+        }
         if (log.topics[1]) markets.add(log.topics[1]);
         borrowEvents += 1;
       }
       for (const log of collateral) {
         const owner = log.topics[2];
-        if (owner && owner.length === 66) borrowers.add(getAddress("0x" + owner.slice(26)));
+        if (owner && owner.length === 66) {
+          const borrower = getAddress("0x" + owner.slice(26));
+          borrowers.add(borrower);
+          if (log.topics[1]) positions.set(`${log.topics[1]}:${borrower.toLowerCase()}`, { marketId: log.topics[1], borrower });
+        }
         if (log.topics[1]) markets.add(log.topics[1]);
         collateralEvents += 1;
       }
@@ -153,6 +164,7 @@ export async function discoverMorphoBlueCandidates(args: {
       blocksScanned: toBlock - fromBlock + 1,
       borrowers: [...borrowers].slice(0, MAX_ADDRESSES),
       markets: [...markets].slice(0, MAX_MARKETS),
+      positions: [...positions.values()].slice(0, MAX_ADDRESSES),
       borrowEvents,
       collateralEvents,
       marketCreatedEvents,
