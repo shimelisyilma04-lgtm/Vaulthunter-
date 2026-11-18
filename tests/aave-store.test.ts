@@ -41,6 +41,26 @@ describe("Aave persistent event store", () => {
     store.close();
   });
 
+  it("paginates discovered borrowers into non-overlapping snapshot batches", () => {
+    const store = makeStore();
+    const addresses = [
+      "0x0000000000000000000000000000000000000005",
+      "0x0000000000000000000000000000000000000004",
+      "0x0000000000000000000000000000000000000006",
+      "0x0000000000000000000000000000000000000007"
+    ];
+    store.upsertDiscoveredBorrowers(1, event.poolAddress, addresses);
+
+    const first = store.listBorrowers(1, event.poolAddress, 2, 0).map((row) => row.address);
+    const second = store.listBorrowers(1, event.poolAddress, 2, 2).map((row) => row.address);
+
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(new Set([...first, ...second]).size).toBe(4);
+    expect(first).not.toEqual(second);
+    store.close();
+  });
+
   it("is idempotent when the same event range is replayed", () => {
     const store = makeStore();
     store.saveEventsAndCheckpoint("aave-v3", 1, event.poolAddress, [event], 100, "0xblock100");

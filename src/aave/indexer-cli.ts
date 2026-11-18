@@ -1,6 +1,6 @@
 import pino from "pino";
 import { config } from "../config.js";
-import { AaveStore } from "./store.js";
+import { AaveStore } from "./store-factory.js";
 import { runAaveIndexerPass } from "./indexer.js";
 
 const logger = pino({ level: config.LOG_LEVEL });
@@ -10,7 +10,10 @@ async function main(): Promise<void> {
     throw new Error("ETHEREUM_RPC_URL is required to run the Aave historical indexer");
   }
 
-  const store = new AaveStore(config.VAULTHUNTER_DB_PATH);
+  if (config.NODE_ENV === "production" && !config.DATABASE_URL) {
+    throw new Error("Set DATABASE_URL to durable PostgreSQL before running the hosted historical indexer.");
+  }
+  const store = new AaveStore(config.VAULTHUNTER_DB_PATH, config.DATABASE_URL);
   const once = process.argv.includes("--once");
   let stopping = false;
   const stop = (): void => { stopping = true; };
@@ -37,7 +40,7 @@ async function main(): Promise<void> {
       }
     } while (!stopping);
   } finally {
-    store.close();
+    await store.close();
     logger.info("Aave indexer stopped; no transactions were submitted");
   }
 }

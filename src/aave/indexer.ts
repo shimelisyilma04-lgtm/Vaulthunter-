@@ -12,12 +12,18 @@ import {
   AAVE_V3_ETHEREUM_ADDRESSES_PROVIDER,
   ADDRESSES_PROVIDER_ABI
 } from "./abi.js";
-import { AaveStore, type StoredBorrowEvent } from "./store.js";
+import type { AaveStorePort, StoredBorrowEvent } from "./store.js";
+import { discoverAaveBorrowersFromSubgraph } from "./subgraph-discovery.js";
 
 const protocol = "aave-v3";
 const chainId = 1;
 const poolInterface = new Interface(AAVE_POOL_ABI);
 const borrowTopic = poolInterface.getEvent("Borrow")!.topicHash;
+let lastSubgraphSyncAt = 0;
+let subgraphConfigLogged = false;
+let snapshotCursor = 0;
+// Rotates the bounded RPC snapshot batch through the complete borrower set.
+// This cursor is intentionally process-local; a restart simply begins at zero.
 
 export interface IndexerPassResult {
   poolAddress: string;
@@ -92,11 +98,18 @@ function decodeBorrowEvents(
 
 export async function runAaveIndexerPass(
   rpcUrl: string,
-  store: AaveStore
+  store: AaveStorePort
 ): Promise<IndexerPassResult> {
   const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
   let reorgDetected = false;
   try {
+    if (!subgraphConfigLogged) {
+      console.info(JSON.stringify({
+        subgraphDiscoveryConfigured: Boolean(config.AAVE_SUBGRAPH_API_KEY),
+        subgraphSyncIntervalMs: config.AAVE_SUBGRAPH_SYNC_INTERVAL_MS
+      }), "Aave subgraph discovery runtime configuration");
+      subgraphConfigLogged = true;
+    }
     const network = await provider.getNetwork();
     if (network.chainId !== BigInt(chainId)) {
       throw new Error(`Aave indexer requires Ethereum chain ID 1; received ${network.chainId}`);
@@ -113,17 +126,15 @@ export async function runAaveIndexerPass(
 
     const head = await provider.getBlockNumber();
     const safeHead = Math.max(0, head - config.AAVE_INDEXER_CONFIRMATIONS);
-    const checkpoint = store.getCheckpoint(protocol, chainId, poolAddress);
+    const checkpoint = await store.getCheckpoint(protocol, chainId, poolAddress);
 
     let nextBlock: number;
     if (!checkpoint) {
-      if (config.AAVE_INDEXER_START_BLOCK === undefined) {
-        throw new Error(
-          "AAVE_INDEXER_START_BLOCK is required for the first historical backfill. " +
-          "Set it to the Aave V3 Ethereum Pool deployment block."
-        );
-      }
-      nextBlock = config.AAVE_INDEXER_START_BLOCK;
+      // Safe hosted default: seed only the configured recent lookback window.
+      // A full-history backfill is an explicit opt-in via AAVE_INDEXER_START_BLOCK;
+      // scanning from the 2022 deployment block can require millions of RPC calls.
+      nextBlock = config.AAVE_INDEXER_START_BLOCK ??
+        Math.max(0, safeHead - config.AAVE_SCAN_LOOKBACK_BLOCKS + 1);
     } else {
       const canonical = await provider.getBlock(checkpoint.lastBlock);
       if (!canonical || canonical.hash?.toLowerCase() !== checkpoint.lastBlockHash.toLowerCase()) {
@@ -134,7 +145,7 @@ export async function runAaveIndexerPass(
         );
         const rewind = await provider.getBlock(rewindBlock);
         if (!rewind?.hash) throw new Error(`Unable to verify canonical rewind block ${rewindBlock}`);
-        store.rollbackTo(protocol, chainId, poolAddress, rewindBlock, rewind.hash);
+        await store.rollbackTo(protocol, chainId, poolAddress, rewindBlock, rewind.hash);
         nextBlock = rewindBlock + 1;
       } else {
         nextBlock = checkpoint.lastBlock + 1;
@@ -161,7 +172,7 @@ export async function runAaveIndexerPass(
         if (eventBlock) timestampsByBlock.set(blockNumber, eventBlock.timestamp);
       }
       const events = decodeBorrowEvents(logs, poolAddress, timestampsByBlock);
-      store.saveEventsAndCheckpoint(
+      await store.saveEventsAndCheckpoint(
         protocol, chainId, poolAddress, events, toBlock, endBlock.hash
       );
       indexedEvents += events.length;
@@ -170,13 +181,44 @@ export async function runAaveIndexerPass(
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
 
+    // Periodically enrich the durable borrower set from Aave's official subgraph.
+    // The Graph provides discovery only; every position is still refreshed from on-chain RPC below.
+    if (config.AAVE_SUBGRAPH_API_KEY &&
+        Date.now() - lastSubgraphSyncAt >= config.AAVE_SUBGRAPH_SYNC_INTERVAL_MS) {
+      try {
+        const discovery = await discoverAaveBorrowersFromSubgraph(config.AAVE_SUBGRAPH_API_KEY);
+        await store.upsertDiscoveredBorrowers(chainId, poolAddress, discovery.addresses);
+        // Advance the sync clock only after a successful fetch and persistence.
+        // Failed requests should retry on the next indexer pass, not wait 15 minutes.
+        lastSubgraphSyncAt = Date.now();
+        console.info(JSON.stringify({
+          source: discovery.source,
+          eventsRead: discovery.eventsRead,
+          pagesRead: discovery.pagesRead,
+          uniqueBorrowers: discovery.addresses.length,
+          completeness: discovery.completeness
+        }), "Aave subgraph borrower discovery synced");
+      } catch (error) {
+        console.warn("Aave subgraph discovery failed; continuing with RPC live-tail indexer",
+          error instanceof Error ? error.message : String(error));
+      }
+    }
+
     // Avoid spending RPC quota refreshing account data for every tiny historical batch.
     // Snapshots are refreshed after the event index catches up to the confirmed chain head.
     const caughtUp = lastCompleted >= safeHead;
     const pool = new Contract(poolAddress, AAVE_POOL_ABI, provider);
+    const snapshotStats = caughtUp ? await store.getStats(chainId, poolAddress) : null;
+    const borrowerCount = snapshotStats?.borrowerCount ?? 0;
+    const snapshotOffset = borrowerCount > 0 ? snapshotCursor % borrowerCount : 0;
     const borrowers = caughtUp
-      ? store.listBorrowers(chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE)
+      ? await store.listBorrowers(
+          chainId, poolAddress, config.AAVE_INDEXER_SNAPSHOT_BATCH_SIZE, snapshotOffset
+        )
       : [];
+    if (borrowerCount > 0) {
+      snapshotCursor = (snapshotOffset + borrowers.length) % borrowerCount;
+    }
     let snapshotsUpdated = 0;
     let accountReadFailures = 0;
 
@@ -184,15 +226,20 @@ export async function runAaveIndexerPass(
       const batch = borrowers.slice(offset, offset + 5);
       const results = await Promise.all(batch.map(async (borrower) => {
         try {
-          const account = await pool.getFunction("getUserAccountData")(borrower.address) as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
+          // Pin every account snapshot to the same confirmed block. Without
+          // blockTag, a moving latest head could make the stored observedBlock
+          // disagree with the state returned by the RPC call.
+          const account = await pool.getFunction("getUserAccountData").staticCall(
+            borrower.address, { blockTag: safeHead }
+          ) as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
           const collateral = account[0];
           const debt = account[1];
           const healthFactor = account[5];
-          store.saveSnapshot({
+          await store.saveSnapshot({
             chainId,
             poolAddress,
             address: borrower.address,
-            observedBlock: head,
+            observedBlock: safeHead,
             totalCollateralBase: collateral.toString(),
             totalDebtBase: debt.toString(),
             healthFactorWad: healthFactor.toString(),
@@ -207,7 +254,7 @@ export async function runAaveIndexerPass(
       snapshotsUpdated += results.filter(Boolean).length;
     }
 
-    const stats = store.getStats(chainId, poolAddress);
+    const stats = await store.getStats(chainId, poolAddress);
     return {
       poolAddress,
       fromBlock: nextBlock,

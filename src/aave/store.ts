@@ -37,7 +37,7 @@ export interface BorrowerSnapshot {
   liquidationEligible: boolean;
 }
 
-export class AaveStore {
+export class SqliteAaveStore {
   private readonly db: Database.Database;
 
   constructor(path: string) {
@@ -179,16 +179,28 @@ export class AaveStore {
     `).run(chainId, poolAddress);
   }
 
-  listBorrowers(chainId: number, poolAddress: string, limit = 100): BorrowerRecord[] {
+  listBorrowers(chainId: number, poolAddress: string, limit = 100, offset = 0): BorrowerRecord[] {
+    const safeLimit = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const safeOffset = Math.max(0, Math.trunc(offset));
     return this.db.prepare(`
       SELECT address, first_seen_block AS firstSeenBlock, last_seen_block AS lastSeenBlock
       FROM aave_borrowers WHERE chain_id = ? AND pool_address = ?
-      ORDER BY
-        CASE WHEN snapshot_updated_at IS NULL THEN 0 ELSE 1 END ASC,
-        snapshot_updated_at ASC,
-        last_seen_block DESC
-      LIMIT ?
-    `).all(chainId, poolAddress, limit) as BorrowerRecord[];
+      ORDER BY CASE WHEN first_seen_block = 0 THEN 0 ELSE 1 END ASC, address ASC
+      LIMIT ? OFFSET ?
+    `).all(chainId, poolAddress, safeLimit, safeOffset) as BorrowerRecord[];
+  }
+
+  upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): void {
+    const insert = this.db.prepare(`
+      INSERT INTO aave_borrowers
+        (chain_id, pool_address, address, first_seen_block, last_seen_block)
+      VALUES (?, ?, ?, 0, 0)
+      ON CONFLICT(chain_id, pool_address, address) DO NOTHING
+    `);
+    const transaction = this.db.transaction(() => {
+      for (const address of addresses) insert.run(chainId, poolAddress, address);
+    });
+    transaction();
   }
 
   saveSnapshot(snapshot: BorrowerSnapshot): void {
@@ -225,7 +237,74 @@ export class AaveStore {
     };
   }
 
+
+  listBorrowerSnapshots(chainId: number, poolAddress: string, limit = 100, eligibleOnly = false): Array<{
+    address: string; firstSeenBlock: number; lastSeenBlock: number; observedBlock: number | null;
+    totalCollateralBase: string | null; totalDebtBase: string | null; healthFactorWad: string | null;
+    liquidationEligible: boolean; snapshotUpdatedAt: string | null;
+  }> {
+    const eligibleClause = eligibleOnly ? "AND liquidation_eligible = 1" : "";
+    const rows = this.db.prepare(`
+      SELECT address, first_seen_block AS firstSeenBlock, last_seen_block AS lastSeenBlock,
+        observed_block AS observedBlock, total_collateral_base AS totalCollateralBase,
+        total_debt_base AS totalDebtBase, health_factor_wad AS healthFactorWad,
+        liquidation_eligible AS liquidationEligible, snapshot_updated_at AS snapshotUpdatedAt
+      FROM aave_borrowers
+      WHERE chain_id = ? AND pool_address = ? ${eligibleClause}
+      ORDER BY
+        CASE WHEN health_factor_wad IS NULL THEN 1 ELSE 0 END ASC,
+        length(health_factor_wad) ASC, health_factor_wad ASC,
+        last_seen_block DESC
+      LIMIT ?
+    `).all(chainId, poolAddress, limit) as Array<{
+      address: string; firstSeenBlock: number; lastSeenBlock: number; observedBlock: number | null;
+      totalCollateralBase: string | null; totalDebtBase: string | null; healthFactorWad: string | null;
+      liquidationEligible: number; snapshotUpdatedAt: string | null;
+    }>;
+    return rows.map((row) => ({ ...row, liquidationEligible: row.liquidationEligible === 1 }));
+  }
+
+  listRecentBorrowEvents(chainId: number, poolAddress: string, limit = 50): Array<{
+    txHash: string; blockNumber: number; borrower: string; reserve: string;
+    amount: string; blockTimestamp: number;
+  }> {
+    return this.db.prepare(`
+      SELECT tx_hash AS txHash, block_number AS blockNumber, borrower, reserve,
+        amount, block_timestamp AS blockTimestamp
+      FROM aave_borrow_events
+      WHERE chain_id = ? AND pool_address = ?
+      ORDER BY block_number DESC, log_index DESC
+      LIMIT ?
+    `).all(chainId, poolAddress, limit) as Array<{
+      txHash: string; blockNumber: number; borrower: string; reserve: string;
+      amount: string; blockTimestamp: number;
+    }>;
+  }
+
   close(): void {
     this.db.close();
   }
+}
+
+
+// Backwards-compatible synchronous SQLite store for existing local tests and tools.
+export class AaveStore extends SqliteAaveStore {}
+
+export interface AaveStorePort {
+  getCheckpoint(protocol: string, chainId: number, poolAddress: string): Promise<IndexerCheckpoint | null>;
+  saveEventsAndCheckpoint(protocol: string, chainId: number, poolAddress: string, events: StoredBorrowEvent[], lastBlock: number, lastBlockHash: string): Promise<void>;
+  rollbackTo(protocol: string, chainId: number, poolAddress: string, blockNumber: number, blockHash: string): Promise<void>;
+  listBorrowers(chainId: number, poolAddress: string, limit?: number, offset?: number): Promise<BorrowerRecord[]>;
+  upsertDiscoveredBorrowers(chainId: number, poolAddress: string, addresses: string[]): Promise<void>;
+  saveSnapshot(snapshot: BorrowerSnapshot): Promise<void>;
+  getStats(chainId: number, poolAddress: string): Promise<{eventCount:number;borrowerCount:number;candidateCount:number;checkpoint:IndexerCheckpoint|null}>;
+  listBorrowerSnapshots(chainId: number, poolAddress: string, limit?: number, eligibleOnly?: boolean): Promise<Array<{
+    address:string;firstSeenBlock:number;lastSeenBlock:number;observedBlock:number|null;
+    totalCollateralBase:string|null;totalDebtBase:string|null;healthFactorWad:string|null;
+    liquidationEligible:boolean;snapshotUpdatedAt:string|null;
+  }>>;
+  listRecentBorrowEvents(chainId: number, poolAddress: string, limit?: number): Promise<Array<{
+    txHash:string;blockNumber:number;borrower:string;reserve:string;amount:string;blockTimestamp:number;
+  }>>;
+  close(): Promise<void>;
 }
