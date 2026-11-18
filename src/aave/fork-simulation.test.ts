@@ -44,4 +44,9 @@ describe("simulateForkCall input validation", () => {
     })).rejects.toThrow();
   });
 
+  it("rejects unsupported chain IDs before opening an RPC connection", async () => {
+    await expect(simulateForkCall("http://127.0.0.1:8545", {
+      to: "0x0000000000000000000000000000000000000001", data: "0x"
+    }, 1, 10)).rejects.toThrow("Only Ethereum, Base and Arbitrum");
+  });
 });
