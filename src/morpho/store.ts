@@ -221,5 +221,21 @@ export class MorphoStore implements MorphoStorePort {
       LIMIT ?
     `).all(chainId,safeLimit) as MorphoCandidate[];
   }
+  listRiskPositions(chainId: number, limit: number): MorphoCandidate[] {
+    const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+    const rows = this.db.prepare(`
+      SELECT market_id AS marketId,address AS borrower,observed_block AS observedBlock,
+        borrow_shares AS borrowShares,debt_assets AS debtAssets,
+        collateral_assets AS collateralAssets,oracle_price AS oraclePrice,
+        lltv_wad AS lltvWad,health_factor_wad AS healthFactorWad,
+        snapshot_updated_at AS snapshotUpdatedAt
+      FROM morpho_borrowers
+      WHERE chain_id=? AND debt_assets IS NOT NULL AND health_factor_wad IS NOT NULL
+        AND snapshot_updated_at > datetime('now','-60 seconds')
+      ORDER BY length(health_factor_wad),health_factor_wad ASC
+      LIMIT ?
+    `).all(chainId, safeLimit * 4) as MorphoCandidate[];
+    return rows.filter((row) => BigInt(row.debtAssets) > 0n && BigInt(row.healthFactorWad) < 125n * 10n ** 16n).slice(0, safeLimit);
+  }
   close(): void { this.db.close(); }
 }
