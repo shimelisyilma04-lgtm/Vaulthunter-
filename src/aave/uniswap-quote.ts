@@ -138,6 +138,11 @@ export async function quoteUniswapV3BestExactInput(
         const quote = await quoter.getFunction("quoteExactInputSingle").staticCall({
           tokenIn, tokenOut, amountIn: BigInt(input.amountIn), fee, sqrtPriceLimitX96: 0
         }, { blockTag: blockNumber }) as readonly [bigint, bigint, number, bigint];
+        if (quote[0] <= 0n) {
+          return { fee, poolAddress, currentLiquidity, amountOut: "0", gasEstimate: quote[3].toString(),
+            initializedTicksCrossed: Number(quote[2]), available: false as const,
+            error: "Pool returned zero output for this input amount" };
+        }
         return {
           fee, poolAddress, currentLiquidity,
           amountOut: quote[0].toString(),
