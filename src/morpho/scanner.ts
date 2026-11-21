@@ -130,6 +130,7 @@ export interface MorphoScanResult {
   chainId: 1; latestBlock: number; marketsDiscovered: number;
   indexedFromBlock: number; indexedThroughBlock: number;
   marketBatchesIndexed: number; borrowersDiscovered: number;
+  liveWindowFromBlock: number; liveBorrowersDiscovered: number; liveDiscoverySucceeded: boolean;
   indexerCaughtUp: boolean; marketsRefreshed: number;
   positionsChecked: number; readFailures: number;
   candidates: Array<{
@@ -207,6 +208,25 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       // The history loop makes two RPC calls per batch; 250ms keeps it near
       // 8 requests/second, leaving headroom for market and borrower snapshots.
       await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    const liveWindowFromBlock = Math.max(startBlock, safeHead - config.MORPHO_LIVE_LOOKBACK_BLOCKS + 1);
+    let liveBorrowersDiscovered = 0;
+    let liveDiscoverySucceeded = true;
+    try {
+      const recentLogs = await provider.getLogs({
+        address: MORPHO_BLUE_ETHEREUM,
+        fromBlock: liveWindowFromBlock,
+        toBlock: safeHead,
+        topics: [positionTopics]
+      });
+      const recentEntries = decodeBorrowerEvents(recentLogs);
+      await store.saveDiscoveredBorrowers(1, recentEntries);
+      liveBorrowersDiscovered = recentEntries.length;
+      for (const entry of recentEntries) discoveredMarketIds.add(entry.marketId);
+    } catch {
+      liveDiscoverySucceeded = false;
+      readFailures += 1;
     }
 
     const latestCheckpoint = await store.getGlobalCheckpoint(1);
@@ -373,7 +393,8 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
     return {
       chainId: 1, latestBlock: head, marketsDiscovered: marketsById.size,
       indexedFromBlock: startBlock, indexedThroughBlock, marketBatchesIndexed,
-      borrowersDiscovered, indexerCaughtUp, marketsRefreshed, positionsChecked,
+      borrowersDiscovered, liveWindowFromBlock, liveBorrowersDiscovered, liveDiscoverySucceeded,
+      indexerCaughtUp, marketsRefreshed, positionsChecked,
       readFailures, candidates, executionEnabled: false
     };
   } finally { await provider.destroy(); }
