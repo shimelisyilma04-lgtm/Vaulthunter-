@@ -118,7 +118,7 @@ export class PostgresMorphoStore implements MorphoStorePort {
       if (batch.length === 0) continue;
       const values = batch.map((_, index) => {
         const base = index * 3;
-        return `(${base + 1},${base + 2},${base + 3})`;
+        return "(" + "$" + (base + 1) + ",$" + (base + 2) + ",$" + (base + 3) + ")";
       }).join(",");
       const params = batch.flatMap((entry) => [
         chainId, entry.marketId.toLowerCase(), entry.address.toLowerCase()
