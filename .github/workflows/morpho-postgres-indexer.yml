@@ -1,8 +1,6 @@
 name: Morpho PostgreSQL Indexer
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +19,7 @@ jobs:
       DATABASE_URL: ${{ secrets.MORPHO_DATABASE_URL }}
       ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
       NODE_ENV: production
-      MORPHO_INDEXER_BATCH_BLOCKS: "10"
+      MORPHO_INDEXER_BATCH_BLOCKS: "1000"
       MORPHO_INDEXER_MAX_BATCHES_PER_PASS: "100"
       MORPHO_MAX_MARKETS: "1000"
       MORPHO_CONFIRMATIONS: "12"
