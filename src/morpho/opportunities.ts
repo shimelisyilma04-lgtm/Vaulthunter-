@@ -141,10 +141,13 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         try {
           const result = await quoteUniswapV3BestExactInput(config.MORPHO_RPC_URL, {
             tokenIn: collateralToken, tokenOut: loanToken, amountIn: quote.seizedAssets.toString()
-          });
+          }, blockNumber);
           swapQuote = result as unknown as Record<string, unknown>;
           if (result.amountOut === null) reasons.push("No supported Uniswap V3 fee-tier route returned a quote");
-          if (result.blockNumber !== blockNumber) reasons.push("Swap quote is from a different block; cross-check is not atomic");
+          if (result.blockNumber !== blockNumber || result.blockHash.toLowerCase() !== block.hash.toLowerCase()) {
+            reasons.push("Swap quote block hash differs from the pinned liquidation validation block");
+            swapQuote = null;
+          }
         } catch (error) {
           reasons.push("Collateral exit quote unavailable: " + (error instanceof Error ? error.message.slice(0, 180) : "unknown quote error"));
         }
