@@ -5,7 +5,7 @@
 - Discovers Morpho Blue market configuration through the public Morpho Core REST API: `GET https://api.morpho.org/v0/blue/markets?chain_id=1`.
 - Discovers borrower activity from the Ethereum Morpho Blue singleton's `Borrow`, `Repay`, `SupplyCollateral`, `WithdrawCollateral`, and `Liquidate` events.
 - Scans the singleton's event stream once across all discovered markets, with a single SQLite block-hash checkpoint. This avoids rescanning the same block range separately for every market.
-- Reads borrower positions, market totals, and oracle prices from Ethereum RPC at a common observed block.
+- Reads borrower positions, market totals, market parameters, and oracle prices from Ethereum RPC at a common observed block.
 - Flags positions whose calculated health factor is below 1.0. It does not sign or submit transactions.
 
 The public API provides market discovery, but its all-positions health endpoint is private and requires a Morpho API key. The public scanner therefore discovers borrowers from protocol events and verifies their current positions onchain.
