@@ -168,7 +168,9 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       borrowersDiscovered += entries.length;
       marketBatchesIndexed += 1;
       nextBlock = toBlock + 1;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Keep the archive RPC below common free-tier credit limits: one getLogs
+      // (255 CU on Infura) plus one getBlock (80 CU) per second stays under 500 CU/s.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     const latestCheckpoint = await store.getGlobalCheckpoint(1);
