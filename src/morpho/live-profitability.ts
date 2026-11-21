@@ -3,6 +3,7 @@ import { getAaveL2FlashLoanTerms } from "../aave/l2-reserve-positions.js";
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import type { MorphoPositionSnapshot } from "./blue.js";
 import { estimateMorphoBlueLiquidation } from "../domain/morpho-profitability.js";
+import { calculateNetProfit } from "../domain/net-profit.js";
 
 const WAD = 10n ** 18n;
 const BPS = 10_000n;
@@ -89,19 +90,25 @@ export async function estimateMorphoBlueLiveProfitability(args: {
       };
     }
     const quotedOut = unsigned(quote.amountOut, "quote amount out");
-    const haircutOut = quotedOut * (BPS - slippageBps) / BPS;
-    const slippageHaircut = quotedOut - haircutOut;
     const debtUnit = 10n ** BigInt(loanDecimals);
     const debtPrice = unsigned(flash.assetPriceBase, "loan token oracle price");
     const nativePrice = unsigned(flash.nativePriceBase, "native token oracle price");
     if (debtPrice === 0n) throw new Error("Aave oracle returned zero loan-token price");
     const gasCostBase = ceilDiv(gasUnits * unsigned(flash.maxFeePerGasWei, "maxFeePerGasWei") * nativePrice, WAD);
     const gasCostLoanUnits = ceilDiv(gasCostBase * debtUnit, debtPrice);
-    const grossAfterRepayment = haircutOut > repayment ? haircutOut - repayment : 0n;
+    const haircutProceeds = quotedOut * (BPS - slippageBps) / BPS;
+    const grossAfterRepayment = haircutProceeds > repayment ? haircutProceeds - repayment : 0n;
     const mevBudget = ceilDiv(repayment * mevBps, BPS);
     const builderFee = ceilDiv(repayment * builderBps, BPS);
     const safetyBuffer = ceilDiv(grossAfterRepayment * safetyBps, BPS);
-    const net = haircutOut - repayment - flashFee - gasCostLoanUnits - mevBudget - builderFee - safetyBuffer;
+    const netResult = calculateNetProfit({
+      swapProceeds: quotedOut.toString(), repayment: repayment.toString(),
+      flashLoanFee: flashFee.toString(), gasCost: gasCostLoanUnits.toString(),
+      mevBudget: mevBudget.toString(), builderFee: builderFee.toString(),
+      safetyBuffer: safetyBuffer.toString(), slippageBps: Number(slippageBps)
+    });
+    const net = BigInt(netResult.netProfit);
+    const slippageHaircut = BigInt(netResult.slippageHaircut);
     return {
       network: args.network, protocol: "morpho-blue", marketId: snapshot.marketId,
       borrower: snapshot.borrower, observedBlock: snapshot.observedBlock,
