@@ -67,6 +67,18 @@ export function morphoTaylorCompounded(rateWad: bigint, elapsedSeconds: bigint):
   return x + secondTerm + thirdTerm;
 }
 
+export function morphoAccrueTotalBorrowAssets(
+  totalBorrowAssets: bigint,
+  borrowRatePerSecondWad: bigint,
+  elapsedSeconds: bigint
+): bigint {
+  if (totalBorrowAssets < 0n || borrowRatePerSecondWad < 0n || elapsedSeconds < 0n) {
+    throw new Error("Morpho accrual inputs must be non-negative");
+  }
+  const compounded = morphoTaylorCompounded(borrowRatePerSecondWad, elapsedSeconds);
+  return totalBorrowAssets + totalBorrowAssets * compounded / WAD;
+}
+
 function asBigInt(value: unknown, label: string): bigint {
   if (typeof value === "bigint") return value;
   if (typeof value === "string" || typeof value === "number") return BigInt(value);
@@ -136,8 +148,7 @@ export async function inspectMorphoBluePosition(args: {
         },
         { blockTag: blockNumber }
       ), "IRM borrow rate");
-      const compounded = morphoTaylorCompounded(borrowRatePerSecond, elapsedSeconds);
-      accruedTotalBorrowAssets += totalBorrowAssets * compounded / WAD;
+      accruedTotalBorrowAssets = morphoAccrueTotalBorrowAssets(totalBorrowAssets, borrowRatePerSecond, elapsedSeconds);
     }
     const accruedBorrowAssets = totalBorrowShares === 0n
       ? 0n
