@@ -26,6 +26,8 @@ jobs:
       - run: npm test
       - name: Fingerprint Aave and Morpho deployments on Base and Arbitrum
         run: npm run verify:protocol-deployments
+      - name: Smoke-test live Aave reserve adapters on Base and Arbitrum
+        run: npm run aave:l2:smoke
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Check configured Ethereum RPC (bounded)
