@@ -201,7 +201,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
               if (debtAssets > 0n && healthFactor < WAD) candidates.push({
                 marketId: market.marketId, borrower: borrower.address, observedBlock: head,
                 debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
-                oraclePrice: price.toString(), lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString(),
+                oraclePrice: price.toString(), lltvWad, healthFactorWad: healthFactor.toString(),
                 accruedInterestAssets: debt.accruedInterestAssets.toString(),
                 borrowRateWadPerSecond: rate.toString()
               });
