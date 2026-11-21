@@ -69,13 +69,18 @@ export function aavePercentDivCeil(value: bigint, percentage: bigint): bigint {
 }
 export function aaveL2CloseFactorBps(
   healthFactorWad: bigint,
+  debtReserveBase: bigint,
+  collateralReserveBase: bigint,
   totalDebtBase: bigint,
   minBaseThreshold: bigint | null
 ): bigint | null {
   if (minBaseThreshold === null) return null;
-  // Aave LiquidationLogic uses the account's total debt in base currency,
-  // with a strict greater-than comparison against the configured threshold.
-  return healthFactorWad > 95n * WAD / 100n && totalDebtBase > minBaseThreshold
+  // Aave V3.3+ first checks the selected debt and collateral reserve values.
+  // If both exceed the threshold and HF > 0.95, the close factor is 50%;
+  // that 50% is then applied to total account debt as a cap for this reserve.
+  return healthFactorWad > 95n * WAD / 100n &&
+    debtReserveBase > minBaseThreshold &&
+    collateralReserveBase > minBaseThreshold
     ? 5_000n
     : 10_000n;
 }
@@ -384,7 +389,7 @@ export async function inspectAaveL2ReservePositions(args: {
         const collateralBase = BigInt(collateral.collateralBalance) * collateralPrice / collateralUnit;
         const totalDebtBase = asBigInt(account[1], "total debt base");
         let maxDebtBase = debtBase;
-        const closeFactorBps = aaveL2CloseFactorBps(hf, totalDebtBase, minBaseThreshold);
+        const closeFactorBps = aaveL2CloseFactorBps(hf, debtBase, collateralBase, totalDebtBase, minBaseThreshold);
         if (closeFactorBps === null) continue;
         if (closeFactorBps === 5_000n) {
           const halfAccountDebt = aavePercentMulHalfUp(totalDebtBase, 5_000n);
