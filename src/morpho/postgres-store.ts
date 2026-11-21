@@ -72,8 +72,7 @@ export class PostgresMorphoStore implements MorphoStorePort {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      // A checkpoint reorg invalidates every borrower discovered after it.
-      await client.query("DELETE FROM morpho_borrowers WHERE chain_id=$1", [chainId]);
+      // Keep the discovered address set; canonical position refresh filters stale addresses.
       await client.query("DELETE FROM morpho_global_checkpoint WHERE chain_id=$1", [chainId]);
       await client.query("COMMIT");
     } catch (error) {
