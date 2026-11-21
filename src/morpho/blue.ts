@@ -29,12 +29,29 @@ export interface MorphoPositionSnapshot {
   totalBorrowShares: string;
   collateralAssets: string;
   oraclePrice: string;
+  borrowRatePerSecondWad: string;
+  accruedTotalBorrowAssets: string;
+  accruedBorrowAssets: string;
+  accrualTimestamp: number;
+  elapsedSeconds: number;
   liquidationEligible: boolean;
   observedBlock: number;
 }
 
 const WAD = 10n ** 18n;
 const ORACLE_PRICE_SCALE = 10n ** 36n;
+const MORPHO_IRM_ABI = [
+  "function borrowRate((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee) market) view returns (uint256)"
+] as const;
+
+function taylorCompounded(rateWad: bigint, elapsedSeconds: bigint): bigint {
+  const x = rateWad * elapsedSeconds;
+  const x2 = x * x / WAD;
+  const x3 = x2 * x / WAD;
+  const x4 = x3 * x / WAD;
+  const x5 = x4 * x / WAD;
+  return x + x2 / 2n + x3 / 6n + x4 / 24n + x5 / 120n;
+}
 
 function asBigInt(value: unknown, label: string): bigint {
   if (typeof value === "bigint") return value;
@@ -82,14 +99,41 @@ export async function inspectMorphoBluePosition(args: {
     const collateral = asBigInt(position[2], "collateral");
     const totalBorrowAssets = asBigInt(market[2], "total borrow assets");
     const totalBorrowShares = asBigInt(market[3], "total borrow shares");
+    const lastUpdate = asBigInt(market[4], "last update");
+    const marketFee = asBigInt(market[5], "market fee");
+    const block = await provider.getBlock(blockNumber);
+    if (!block) throw new Error("Could not load pinned block timestamp");
+    const elapsedSeconds = BigInt(block.timestamp) > lastUpdate
+      ? BigInt(block.timestamp) - lastUpdate
+      : 0n;
+    let borrowRatePerSecond = 0n;
+    let accruedTotalBorrowAssets = totalBorrowAssets;
+    if (elapsedSeconds > 0n && irm.toLowerCase() !== "0x0000000000000000000000000000000000000000") {
+      const irmContract = new Contract(irm, MORPHO_IRM_ABI, provider);
+      borrowRatePerSecond = asBigInt(await irmContract.getFunction("borrowRate")(
+        { loanToken, collateralToken, oracle: oracleAddress, irm, lltv },
+        {
+          totalSupplyAssets: asBigInt(market[0], "total supply assets"),
+          totalSupplyShares: asBigInt(market[1], "total supply shares"),
+          totalBorrowAssets,
+          totalBorrowShares,
+          lastUpdate,
+          fee: marketFee
+        },
+        { blockTag: blockNumber }
+      ), "IRM borrow rate");
+      const compounded = taylorCompounded(borrowRatePerSecond, elapsedSeconds);
+      accruedTotalBorrowAssets += totalBorrowAssets * compounded / WAD;
+    }
+    const accruedBorrowAssets = totalBorrowShares === 0n
+      ? 0n
+      : (borrowShares * accruedTotalBorrowAssets + totalBorrowShares - 1n) / totalBorrowShares;
 
     const oracle = new Contract(oracleAddress, [
       "function price() view returns (uint256)"
     ], provider);
     const oraclePrice = asBigInt(await oracle.getFunction("price")({ blockTag: blockNumber }), "oracle price");
-    const borrowAssets = totalBorrowShares === 0n
-      ? 0n
-      : (borrowShares * totalBorrowAssets + totalBorrowShares - 1n) / totalBorrowShares;
+    const borrowAssets = accruedBorrowAssets;
 
     // Match Morpho.sol _isHealthy rounding: collateral value is floored first,
     // then the LLTV multiplication is floored in loan-token base units.
@@ -113,6 +157,11 @@ export async function inspectMorphoBluePosition(args: {
       totalBorrowShares: totalBorrowShares.toString(),
       collateralAssets: collateral.toString(),
       oraclePrice: oraclePrice.toString(),
+      borrowRatePerSecondWad: borrowRatePerSecond.toString(),
+      accruedTotalBorrowAssets: accruedTotalBorrowAssets.toString(),
+      accruedBorrowAssets: accruedBorrowAssets.toString(),
+      accrualTimestamp: block.timestamp,
+      elapsedSeconds: Number(elapsedSeconds),
       liquidationEligible,
       observedBlock: blockNumber
     };
