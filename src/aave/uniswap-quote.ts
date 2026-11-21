@@ -116,7 +116,7 @@ export async function quoteUniswapV3BestExactInput(
     if (network.chainId !== 1n) throw new Error("Uniswap V3 quote adapter requires Ethereum mainnet (chain ID 1)");
     const blockNumber = validationBlock ?? await provider.getBlockNumber();
     const pinnedBlock = await provider.getBlock(blockNumber);
-    if (!pinnedBlock) throw new Error("Unable to load pinned quote block");
+    if (!pinnedBlock?.hash) throw new Error("Unable to load pinned quote block hash");
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, provider);
     const factory = new Contract(UNISWAP_V3_FACTORY, FACTORY_ABI, provider);
     const fees = [100, 500, 3000, 10000] as const;
