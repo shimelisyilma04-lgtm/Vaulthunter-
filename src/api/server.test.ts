@@ -27,6 +27,45 @@ describe("getRateLimitClientIdentity", () => {
   });
 });
 
+describe("Morpho monitoring API", () => {
+  it("serves durable indexer status and read-only candidate snapshots", async () => {
+    const morphoStore = {
+      getMonitorStats: async () => ({
+        marketCount: 12, borrowerCount: 34, candidateCount: 2,
+        latestSnapshotBlock: 26461785,
+        checkpoint: { lastBlock: 26461785, lastBlockHash: "0xabc" }
+      }),
+      listLiquidationCandidates: async () => [{
+        marketId: "0xmarket", borrower: "0x0000000000000000000000000000000000000001",
+        observedBlock: 26461785, borrowShares: "10", debtAssets: "11",
+        collateralAssets: "20", oraclePrice: "2000000000000000000000000000000000000",
+        lltvWad: "860000000000000000", healthFactorWad: "900000000000000000",
+        snapshotUpdatedAt: "2026-11-21T06:00:00.000Z"
+      }]
+    } as never;
+    const server = startHttpServer({} as never, morphoStore);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Test server did not bind a TCP port");
+    const base = `http://127.0.0.1:${address.port}`;
+    try {
+      const status = await fetch(`${base}/api/v1/morpho/status`);
+      expect(status.status).toBe(200);
+      expect(await status.json()).toMatchObject({
+        protocol: "morpho-blue", chainId: 1, mode: "read-only",
+        counts: { marketsDiscovered: 12, borrowersDiscovered: 34, liquidationEligibleSnapshots: 2 }
+      });
+      const candidates = await fetch(`${base}/api/v1/morpho/candidates?limit=5`);
+      expect(candidates.status).toBe(200);
+      expect(await candidates.json()).toMatchObject({
+        count: 1, executionEnabled: false, ranking: "lowest-health-factor-first"
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
 describe("read-only API boundary", () => {
   it("serves health and rejects unsupported write methods", async () => {
     const server = startHttpServer({} as never);
