@@ -32,7 +32,12 @@ export function accrueMorphoBorrowDebt(input: MorphoAccrualInput): MorphoAccrual
   const compoundedInterestWad = morphoTaylorCompounded(borrowRateWadPerSecond, elapsedSeconds);
   const accruedInterestAssets = totalBorrowAssets * compoundedInterestWad / MORPHO_WAD;
   const accruedTotalBorrowAssets = totalBorrowAssets + accruedInterestAssets;
+  // Morpho SharesMathLib.toAssetsUp uses virtual assets/shares to mitigate
+  // share-price manipulation; omitting these constants materially misprices debt.
+  const virtualAssets = 1n;
+  const virtualShares = 1_000_000n;
   const borrowerDebtAssetsUp = borrowShares === 0n ? 0n :
-    (borrowShares * accruedTotalBorrowAssets + totalBorrowShares - 1n) / totalBorrowShares;
+    (borrowShares * (accruedTotalBorrowAssets + virtualAssets) +
+      totalBorrowShares + virtualShares - 1n) / (totalBorrowShares + virtualShares);
   return { compoundedInterestWad, accruedInterestAssets, accruedTotalBorrowAssets, borrowerDebtAssetsUp };
 }
