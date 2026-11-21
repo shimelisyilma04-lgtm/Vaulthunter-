@@ -9,6 +9,7 @@ interface VmFork {
     function warp(uint256 timestamp) external;
     function load(address target, bytes32 slot) external view returns (bytes32);
     function skip(bool skipTest) external;
+    function deal(address token, address to, uint256 give) external;
 }
 
 interface IAaveAddressesProviderFork {
@@ -19,9 +20,11 @@ interface IAavePoolFork {
     function getRevision() external view returns (uint256);
     function getReservesList() external view returns (address[] memory);
     function FLASHLOAN_PREMIUM_TOTAL() external view returns (uint128);
+    function getUserAccountData(address user) external view returns (uint256 totalCollateralBase,uint256 totalDebtBase,uint256 availableBorrowsBase,uint256 currentLiquidationThreshold,uint256 ltv,uint256 healthFactor);
+    function liquidationCall(address collateralAsset,address debtAsset,address user,uint256 debtToCover,bool receiveAToken) external;
 }
 
-interface IMorphoBlueFork {
+interface IERC20Fork {\n    function balanceOf(address account) external view returns (uint256);\n    function approve(address spender, uint256 amount) external returns (bool);\n}\n\ninterface IMorphoBlueFork {
     struct MarketParams {
         address loanToken;
         address collateralToken;
@@ -111,6 +114,114 @@ contract ProtocolForkVerificationTest {
         vm.createSelectFork(rpc);
         require(block.chainid == 42161, "ARBITRUM_CHAIN_ID");
         _assertMorphoAccrual(ARBITRUM_MORPHO, marketId);
+    }
+
+
+    // Optional transaction-level fork fixtures. Supply known, currently
+    // liquidatable borrowers and exact token amounts as GitHub Actions vars
+    // or local environment variables. All writes remain on the fork.
+    function testBaseAaveLiquidationAgainstDeployedPoolWhenFixtureConfigured() external {
+        _runAaveLiquidationFixture("BASE", "https://mainnet.base.org", 8453, BASE_AAVE_PROVIDER, BASE_AAVE_POOL);
+    }
+
+    function testArbitrumAaveLiquidationAgainstDeployedPoolWhenFixtureConfigured() external {
+        _runAaveLiquidationFixture("ARBITRUM", "https://arb1.arbitrum.io/rpc", 42161, ARBITRUM_AAVE_PROVIDER, ARBITRUM_AAVE_POOL);
+    }
+
+    function _runAaveLiquidationFixture(
+        string memory prefix,
+        string memory defaultRpc,
+        uint256 expectedChainId,
+        address addressesProvider,
+        address expectedPool
+    ) private {
+        string memory borrowerText = vm.envOr(string.concat("AAVE_", prefix, "_BORROWER"), "");
+        string memory collateralText = vm.envOr(string.concat("AAVE_", prefix, "_COLLATERAL"), "");
+        string memory debtText = vm.envOr(string.concat("AAVE_", prefix, "_DEBT"), "");
+        string memory amountText = vm.envOr(string.concat("AAVE_", prefix, "_DEBT_TO_COVER"), "");
+        if (bytes(borrowerText).length == 0 || bytes(collateralText).length == 0 ||
+            bytes(debtText).length == 0 || bytes(amountText).length == 0) {
+            vm.skip(true);
+            return;
+        }
+        string memory rpc = vm.envOr(string.concat(prefix, "_RPC_URL"), defaultRpc);
+        vm.createSelectFork(rpc);
+        require(block.chainid == expectedChainId, "AAVE_FIXTURE_CHAIN");
+        address borrower = _parseAddress(borrowerText);
+        address collateral = _parseAddress(collateralText);
+        address debt = _parseAddress(debtText);
+        uint256 amount = _parseUint(amountText);
+        require(amount > 0, "AAVE_FIXTURE_AMOUNT_ZERO");
+        address pool = IAaveAddressesProviderFork(addressesProvider).getPool();
+        require(pool == expectedPool, "AAVE_FIXTURE_POOL");
+        (,,,,, uint256 healthFactor) = IAavePoolFork(pool).getUserAccountData(borrower);
+        require(healthFactor < 1e18, "AAVE_FIXTURE_BORROWER_HEALTHY");
+        uint256 debtBefore = IERC20Fork(debt).balanceOf(address(this));
+        uint256 collateralBefore = IERC20Fork(collateral).balanceOf(address(this));
+        vm.deal(debt, address(this), amount);
+        require(IERC20Fork(debt).approve(pool, amount), "AAVE_FIXTURE_APPROVE");
+        IAavePoolFork(pool).liquidationCall(collateral, debt, borrower, amount, false);
+        require(IERC20Fork(debt).balanceOf(address(this)) < debtBefore + amount, "AAVE_FIXTURE_NO_DEBT_SPENT");
+        require(IERC20Fork(collateral).balanceOf(address(this)) > collateralBefore, "AAVE_FIXTURE_NO_COLLATERAL_RECEIVED");
+    }
+
+    function testBaseMorphoLiquidationAgainstDeployedCoreWhenFixtureConfigured() external {
+        _runMorphoLiquidationFixture("BASE", "https://mainnet.base.org", 8453, BASE_MORPHO);
+    }
+
+    function testArbitrumMorphoLiquidationAgainstDeployedCoreWhenFixtureConfigured() external {
+        _runMorphoLiquidationFixture("ARBITRUM", "https://arb1.arbitrum.io/rpc", 42161, ARBITRUM_MORPHO);
+    }
+
+    function _runMorphoLiquidationFixture(
+        string memory prefix,
+        string memory defaultRpc,
+        uint256 expectedChainId,
+        address morphoAddress
+    ) private {
+        string memory marketText = vm.envOr(string.concat("MORPHO_", prefix, "_LIQUIDATION_MARKET_ID"), "");
+        string memory borrowerText = vm.envOr(string.concat("MORPHO_", prefix, "_LIQUIDATION_BORROWER"), "");
+        string memory sharesText = vm.envOr(string.concat("MORPHO_", prefix, "_LIQUIDATION_REPAID_SHARES"), "");
+        if (bytes(marketText).length == 0 || bytes(borrowerText).length == 0 || bytes(sharesText).length == 0) {
+            vm.skip(true);
+            return;
+        }
+        string memory rpc = vm.envOr(string.concat(prefix, "_RPC_URL"), defaultRpc);
+        vm.createSelectFork(rpc);
+        require(block.chainid == expectedChainId, "MORPHO_FIXTURE_CHAIN");
+        bytes32 marketId = _parseBytes32(marketText);
+        address borrower = _parseAddress(borrowerText);
+        uint256 repaidShares = _parseUint(sharesText);
+        require(repaidShares > 0, "MORPHO_FIXTURE_SHARES_ZERO");
+        IMorphoBlueFork morpho = IMorphoBlueFork(morphoAddress);
+        IMorphoBlueFork.MarketParams memory params = morpho.idToMarketParams(marketId);
+        uint256 loanBefore = IERC20Fork(params.loanToken).balanceOf(address(this));
+        uint256 collateralBefore = IERC20Fork(params.collateralToken).balanceOf(address(this));
+        vm.deal(params.loanToken, address(this), type(uint128).max);
+        require(IERC20Fork(params.loanToken).approve(morphoAddress, type(uint128).max), "MORPHO_FIXTURE_APPROVE");
+        morpho.liquidate(params, borrower, 0, repaidShares, "");
+        require(IERC20Fork(params.loanToken).balanceOf(address(this)) < type(uint128).max, "MORPHO_FIXTURE_NO_LOAN_SPENT");
+        require(IERC20Fork(params.collateralToken).balanceOf(address(this)) > collateralBefore, "MORPHO_FIXTURE_NO_COLLATERAL_RECEIVED");
+        loanBefore; // retained for trace readability; the balance is reset by deal above.
+    }
+
+    function _parseAddress(string memory value) private pure returns (address result) {
+        bytes memory data = bytes(value);
+        require(data.length == 42 && data[0] == "0" && data[1] == "x", "INVALID_ADDRESS");
+        uint160 parsed;
+        for (uint256 i = 0; i < 20; i++) {
+            parsed |= uint160(uint8(_nibble(uint8(data[2 + i * 2])) << 4 | _nibble(uint8(data[3 + i * 2])))) << (152 - i * 8);
+        }
+        result = address(parsed);
+    }
+
+    function _parseUint(string memory value) private pure returns (uint256 result) {
+        bytes memory data = bytes(value);
+        require(data.length > 0 && data.length < 79, "INVALID_UINT");
+        for (uint256 i = 0; i < data.length; i++) {
+            require(data[i] >= "0" && data[i] <= "9", "INVALID_UINT");
+            result = result * 10 + uint8(data[i]) - 48;
+        }
     }
 
     function _assertMorphoAccrual(address morphoAddress, bytes32 marketId) private {
