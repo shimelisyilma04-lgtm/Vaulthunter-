@@ -30,6 +30,25 @@ interface ApiMarket {
 interface ApiPage<T> { data: T[]; cursor: string | null; }
 interface BorrowerEvent { marketId: string; address: string; }
 
+function mapApiMarket(row: ApiMarket): MorphoMarket {
+  return {
+    chainId: row.chain_id, marketId: row.market_id.toLowerCase(),
+    loanToken: getAddress(row.loan_token), collateralToken: getAddress(row.collateral_token),
+    oracleAddress: getAddress(row.oracle_address), irmAddress: getAddress(row.irm_address),
+    lltvWad: row.lltv_wad, creationBlock: Number(row.creation_block_number)
+  };
+}
+
+async function getMorphoEthereumMarket(marketId: string): Promise<MorphoMarket> {
+  const response = await getJson<{ data: ApiMarket }>(
+    `https://api.morpho.org/v0/blue/markets/1:${marketId}`
+  );
+  if (response.data.chain_id !== 1 || response.data.market_id.toLowerCase() !== marketId.toLowerCase()) {
+    throw new Error(`Morpho API returned mismatched market metadata for ${marketId}`);
+  }
+  return mapApiMarket(response.data);
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error(`Morpho API returned ${response.status}`);
@@ -46,12 +65,7 @@ export async function listMorphoEthereumMarkets(): Promise<MorphoMarket[]> {
     if (cursor) url.searchParams.set("cursor", cursor);
     const page = await getJson<ApiPage<ApiMarket>>(url.toString());
     for (const row of page.data) {
-      result.push({
-        chainId: row.chain_id, marketId: row.market_id.toLowerCase(),
-        loanToken: getAddress(row.loan_token), collateralToken: getAddress(row.collateral_token),
-        oracleAddress: getAddress(row.oracle_address), irmAddress: getAddress(row.irm_address),
-        lltvWad: row.lltv_wad, creationBlock: Number(row.creation_block_number)
-      });
+      result.push(mapApiMarket(row));
       if (result.length >= config.MORPHO_MAX_MARKETS) return result;
     }
     cursor = page.cursor;
@@ -105,6 +119,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
     const safeHead = Math.max(0, head - config.MORPHO_CONFIRMATIONS);
     const markets = await listMorphoEthereumMarkets();
     if (markets.length === 0) throw new Error("Morpho API returned no Ethereum Blue markets");
+    const marketsById = new Map(markets.map((market) => [market.marketId, market]));
     for (const market of markets) await store.upsertMarket(market);
 
     const startBlock = Math.min(...markets.map((m) => m.creationBlock));
@@ -129,11 +144,11 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
           topics: [positionTopics]
         });
       } catch {
-        readFailures += 1;
         if (batchBlocks > 10) {
           batchBlocks = Math.max(10, Math.floor(batchBlocks / 2));
           continue;
         }
+        readFailures += 1;
         break;
       }
       const block = await provider.getBlock(toBlock);
@@ -154,17 +169,28 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
     const candidates: MorphoScanResult["candidates"] = [];
 
     {
+      // Event history spans every Morpho Blue market, not just the API's first 1,000.
+      // Fetch metadata on demand for any market that appears in indexed events.
+      for (const marketId of discoveredMarketIds) {
+        if (marketsById.has(marketId)) continue;
+        try {
+          const market = await getMorphoEthereumMarket(marketId);
+          marketsById.set(marketId, market);
+          await store.upsertMarket(market);
+        } catch { readFailures += 1; }
+      }
       // Refresh discovered borrowers during the historical backfill; waiting for the
       // full chain scan would leave every position snapshot empty for hours or days.
-      const offset = (await store.getSnapshotMarketOffset(1)) % markets.length;
-      const count = Math.min(config.MORPHO_MARKETS_TO_REFRESH_PER_PASS, markets.length);
+      const refreshMarkets = [...marketsById.values()];
+      const offset = (await store.getSnapshotMarketOffset(1)) % refreshMarkets.length;
+      const count = Math.min(config.MORPHO_MARKETS_TO_REFRESH_PER_PASS, refreshMarkets.length);
       const selectedById = new Map<string, MorphoMarket>();
       for (const marketId of discoveredMarketIds) {
-        const market = markets.find((item) => item.marketId === marketId);
+        const market = marketsById.get(marketId);
         if (market) selectedById.set(marketId, market);
       }
-      for (let i = 0; i < markets.length && selectedById.size < count; i += 1) {
-        const market = markets[(offset + i) % markets.length]!;
+      for (let i = 0; i < refreshMarkets.length && selectedById.size < count; i += 1) {
+        const market = refreshMarkets[(offset + i) % refreshMarkets.length]!;
         selectedById.set(market.marketId, market);
       }
       const selected = [...selectedById.values()].slice(0, count);
@@ -272,7 +298,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
         } catch { readFailures += 1; }
         marketsRefreshed += 1;
       }
-      await store.saveSnapshotMarketOffset(1, (offset + count) % markets.length);
+      await store.saveSnapshotMarketOffset(1, (offset + count) % refreshMarkets.length);
     }
 
     candidates.sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
