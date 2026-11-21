@@ -7,7 +7,7 @@ These values were captured by GitHub Actions using public chain RPC endpoints at
 | Field | Base | Arbitrum |
 |---|---|---|
 | Chain ID | 8453 | 42161 |
-| Fingerprint block | 60,154,300 | 526,087,130 |
+| Fingerprint block | 60,155,534 | 526,087,954 |
 | Addresses Provider | `0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D` | `0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb` |
 | Pool proxy | `0xA238Dd80C259a72e81d7e4664a9801593F98d1c5` | `0x794a61358D6845594F94dc1DB02A252b5b4814aD` |
 | Pool implementation | `0xf248Dd0AdB01e78043e8a423b8504c8129F11918` | `0xa6E7d235A5B2fc7811d10669bbe20fA14B658A1e` |
@@ -30,6 +30,10 @@ The close-factor and dust constants are internal to Aave's linked LiquidationLog
 | Fingerprint block | 60,154,300 | 526,087,130 |
 | Singleton | `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb` | `0x6c247b1F6182318877311737BaC0844bAa518F5e` |
 | Runtime code hash | `0xaa76348c0b91e5dfcece228ef6847b0c5081656d2def05c5617bcab659f0b819` | `0xd2bb64e51bc71ff5ce00ae89eab643e65fda6fc59f4ab8c367241c4bedf8acf5` |
+
+## Live read-only smoke check
+
+The CI adapter smoke check also completed successfully at Base block `60,155,540` and Arbitrum block `526,087,985`, using a synthetic address with no supplied/borrowed positions. Both adapters resolved the expected Pool, read account configuration and oracle/base-currency settings, returned the USD thresholds `200000000000` and `100000000000` in 8-decimal base units, and reported a 5 bps flash-loan premium. The empty position correctly produced zero reserves and zero liquidation pairs. This is a read-ABI smoke test, not a liquidatable-borrower math differential.
 
 ## What this establishes — and what it does not
 
