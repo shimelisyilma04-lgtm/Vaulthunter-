@@ -41,8 +41,8 @@ Primary references:
 - Aave flash-loan flow: https://aave.com/docs/aave-v3/guides/flash-loans
 
 Verified source rules:
-1. The V3.3+ 50% close-factor condition is evaluated against the **selected debt reserve's debt value and selected collateral reserve's collateral value**, each compared with `MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD`, plus the health-factor threshold. It is not simply `totalDebtBase > threshold`.
-2. When the condition applies, the 50% cap is half the user's **total account debt in base currency**, but it only caps the selected debt reserve when that reserve debt exceeds the cap.
+1. The V3.3+ 50% close-factor condition requires health factor above 0.95 and both the **selected debt reserve's debt value** and **selected collateral reserve's collateral value** to be strictly greater than `MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD`.
+2. Once eligible, the 50% cap is half the user's **total account debt in base currency**. That account-level cap only reduces the selected debt reserve's maximum repayment when its reserve debt exceeds the cap. Equality at either reserve threshold does not qualify for the 50% close factor.
 3. Current Aave Origin uses eMode collateral bitmaps to select the category liquidation bonus. In its liquidation pair calculation it obtains collateral and debt prices from the ordinary reserve oracle; eMode-adjusted account health is calculated separately by GenericLogic. Aave Origin retains the legacy `getEModeCategoryData` return shape for compatibility but exposes the current collateral bitmap through the separate `getEModeCategoryCollateralBitmap` getter. The adapter probes that getter first; it only uses the old priceSource behavior when the bitmap getter is absent.
 4. Current Aave Origin liquidation arithmetic uses floor for max-collateral multiplication, ceil for debt amount division when collateral is capped, and ceil for the protocol fee. The close-factor half-debt calculation uses PercentageMath half-up rounding. Bonus-collateral calculation uses floor division.
 5. The dust guard is evaluated only when the liquidation leaves both debt and collateral. Both remaining values must be at least `MIN_LEFTOVER_BASE`; collateral remaining is calculated after the gross collateral consumption (liquidator amount plus protocol fee).
@@ -109,3 +109,8 @@ Do not enable signing, broadcasting, or an execution switch until all of the fol
 ## Aave close-factor verification note
 
 The Base/Arbitrum adapter selects the close factor using total account debt in base currency, not the selected reserve balances. A 50% cap applies only when health factor is above 0.95 and total account debt is strictly greater than the configured threshold; otherwise the cap is 100%. Unit tests cover below/equal/above-threshold cases. This remains subject to fork differential verification against the deployed implementation.
+
+
+## Correction log — 2026-11-21
+
+The earlier branch implementation briefly used total account debt for the threshold eligibility test. That was incorrect. The implementation and unit tests have been corrected to use selected debt-reserve base value and selected collateral-reserve base value for eligibility, with half of total account debt used only as the subsequent repayment cap. The fork differential test against the deployed Base and Arbitrum Pool implementations remains a required gate.
