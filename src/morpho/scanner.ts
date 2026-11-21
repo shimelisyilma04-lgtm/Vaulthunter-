@@ -102,7 +102,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
       if (checkpoint) {
         const canonical = await provider.getBlock(checkpoint.lastBlock);
         if (!canonical?.hash || canonical.hash.toLowerCase() !== checkpoint.lastBlockHash.toLowerCase()) {
-          store.resetMarketCheckpoint(1, market.marketId, market.creationBlock - 1, "0x");
+          store.resetMarketCheckpoint(1, market.marketId);
           checkpoint = null;
         }
       }
