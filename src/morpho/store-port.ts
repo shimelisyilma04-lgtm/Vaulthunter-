@@ -15,6 +15,7 @@ export interface MorphoStorePort {
   getGlobalCheckpoint(chainId: number): MaybePromise<MorphoCheckpoint | null>;
   resetGlobalCheckpoint(chainId: number): MaybePromise<void>;
   saveGlobalBatch(chainId: number, entries: Array<{ marketId: string; address: string }>, block: number, hash: string): MaybePromise<void>;
+  saveDiscoveredBorrowers(chainId: number, entries: Array<{ marketId: string; address: string }>): MaybePromise<void>;
   getSnapshotMarketOffset(chainId: number): MaybePromise<number>;
   saveSnapshotMarketOffset(chainId: number, offset: number): MaybePromise<void>;
   listBorrowers(chainId: number, marketId: string, limit: number): MaybePromise<MorphoBorrower[]>;
