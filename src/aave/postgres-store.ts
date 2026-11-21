@@ -110,7 +110,7 @@ export class PostgresAaveStore implements AaveStorePort {
         `INSERT INTO aave_borrowers(chain_id,pool_address,address,first_seen_block,last_seen_block)
          SELECT chain_id,pool_address,borrower,MIN(block_number),MAX(block_number)
          FROM aave_borrow_events WHERE chain_id=$1 AND pool_address=$2
-         GROUP BY chain_id,pool_address`,
+         GROUP BY chain_id,pool_address,borrower`,
         [chainId,poolAddress]
       );
       await client.query(
