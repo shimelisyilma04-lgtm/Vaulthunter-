@@ -41,16 +41,30 @@ export interface MorphoPositionSnapshot {
 const WAD = 10n ** 18n;
 const ORACLE_PRICE_SCALE = 10n ** 36n;
 const MORPHO_IRM_ABI = [
-  "function borrowRate((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee) market) view returns (uint256)"
+  "function borrowRateView((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee) market) view returns (uint256)"
 ] as const;
+
+const VIRTUAL_ASSETS = 1n;
+const VIRTUAL_SHARES = 1_000_000n;
+
+export function morphoToAssetsUp(shares: bigint, totalAssets: bigint, totalShares: bigint): bigint {
+  const numerator = shares * (totalAssets + VIRTUAL_ASSETS);
+  const denominator = totalShares + VIRTUAL_SHARES;
+  if (denominator === 0n) throw new Error("Morpho share denominator is zero");
+  return numerator === 0n ? 0n : (numerator + denominator - 1n) / denominator;
+}
+
+export function morphoToAssetsDown(shares: bigint, totalAssets: bigint, totalShares: bigint): bigint {
+  const denominator = totalShares + VIRTUAL_SHARES;
+  if (denominator === 0n) throw new Error("Morpho share denominator is zero");
+  return shares * (totalAssets + VIRTUAL_ASSETS) / denominator;
+}
 
 export function morphoTaylorCompounded(rateWad: bigint, elapsedSeconds: bigint): bigint {
   const x = rateWad * elapsedSeconds;
-  const x2 = x * x / WAD;
-  const x3 = x2 * x / WAD;
-  const x4 = x3 * x / WAD;
-  const x5 = x4 * x / WAD;
-  return x + x2 / 2n + x3 / 6n + x4 / 24n + x5 / 120n;
+  const secondTerm = x * x / (2n * WAD);
+  const thirdTerm = secondTerm * x / (3n * WAD);
+  return x + secondTerm + thirdTerm;
 }
 
 function asBigInt(value: unknown, label: string): bigint {
@@ -110,7 +124,7 @@ export async function inspectMorphoBluePosition(args: {
     let accruedTotalBorrowAssets = totalBorrowAssets;
     if (elapsedSeconds > 0n && irm.toLowerCase() !== "0x0000000000000000000000000000000000000000") {
       const irmContract = new Contract(irm, MORPHO_IRM_ABI, provider);
-      borrowRatePerSecond = asBigInt(await irmContract.getFunction("borrowRate")(
+      borrowRatePerSecond = asBigInt(await irmContract.getFunction("borrowRateView")(
         { loanToken, collateralToken, oracle: oracleAddress, irm, lltv },
         {
           totalSupplyAssets: asBigInt(market[0], "total supply assets"),
@@ -127,7 +141,7 @@ export async function inspectMorphoBluePosition(args: {
     }
     const accruedBorrowAssets = totalBorrowShares === 0n
       ? 0n
-      : (borrowShares * accruedTotalBorrowAssets + totalBorrowShares - 1n) / totalBorrowShares;
+      : morphoToAssetsUp(borrowShares, accruedTotalBorrowAssets, totalBorrowShares);
 
     const oracle = new Contract(oracleAddress, [
       "function price() view returns (uint256)"
