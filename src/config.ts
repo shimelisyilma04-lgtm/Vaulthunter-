@@ -16,6 +16,11 @@ const envSchema = z.object({
   AAVE_INDEXER_POLL_INTERVAL_MS: z.coerce.number().int().min(5000).max(3600000).default(30000),
   AAVE_INDEXER_SNAPSHOT_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
   VAULTHUNTER_DB_PATH: z.string().min(1).default("./data/vaulthunter.sqlite"),
+  MORPHO_MAX_MARKETS: z.coerce.number().int().min(1).max(1000).default(100),
+  MORPHO_INDEXER_BATCH_BLOCKS: z.coerce.number().int().min(1).max(10).default(10),
+  MORPHO_CONFIRMATIONS: z.coerce.number().int().min(1).max(256).default(12),
+  MORPHO_SNAPSHOT_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
+  MORPHO_POLL_INTERVAL_MS: z.coerce.number().int().min(5000).max(3600000).default(30000),
   VAULTHUNTER_EXECUTION_ENABLED: z.literal("false").default("false")
 });
 
