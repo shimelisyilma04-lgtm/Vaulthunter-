@@ -95,8 +95,8 @@ export class MorphoStore {
     tx();
   }
   getSnapshotMarketOffset(chainId: number): number {
-    const row=this.db.prepare("SELECT snapshot_market_offset AS offset FROM morpho_scan_state WHERE chain_id=?").get(chainId) as {offset:number}|undefined;
-    return row?.offset ?? 0;
+    const row=this.db.prepare("SELECT snapshot_market_offset AS cursorValue FROM morpho_scan_state WHERE chain_id=?").get(chainId) as {cursorValue:number}|undefined;
+    return row?.cursorValue ?? 0;
   }
   saveSnapshotMarketOffset(chainId: number, offset: number): void {
     this.db.prepare(`INSERT INTO morpho_scan_state(chain_id,snapshot_market_offset) VALUES(?,?)
