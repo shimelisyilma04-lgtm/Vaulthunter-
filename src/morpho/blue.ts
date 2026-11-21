@@ -44,7 +44,7 @@ const MORPHO_IRM_ABI = [
   "function borrowRate((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee) market) view returns (uint256)"
 ] as const;
 
-function taylorCompounded(rateWad: bigint, elapsedSeconds: bigint): bigint {
+export function morphoTaylorCompounded(rateWad: bigint, elapsedSeconds: bigint): bigint {
   const x = rateWad * elapsedSeconds;
   const x2 = x * x / WAD;
   const x3 = x2 * x / WAD;
@@ -122,7 +122,7 @@ export async function inspectMorphoBluePosition(args: {
         },
         { blockTag: blockNumber }
       ), "IRM borrow rate");
-      const compounded = taylorCompounded(borrowRatePerSecond, elapsedSeconds);
+      const compounded = morphoTaylorCompounded(borrowRatePerSecond, elapsedSeconds);
       accruedTotalBorrowAssets += totalBorrowAssets * compounded / WAD;
     }
     const accruedBorrowAssets = totalBorrowShares === 0n
