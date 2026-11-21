@@ -76,7 +76,10 @@ export function morphoAccrueTotalBorrowAssets(
     throw new Error("Morpho accrual inputs must be non-negative");
   }
   const compounded = morphoTaylorCompounded(borrowRatePerSecondWad, elapsedSeconds);
-  return totalBorrowAssets + totalBorrowAssets * compounded / WAD;
+  const accrued = totalBorrowAssets + totalBorrowAssets * compounded / WAD;
+  // Morpho Blue stores market totals as uint128 and SafeCasts accrued totals.
+  if (accrued > (1n << 128n) - 1n) throw new Error("Morpho accrued total borrow assets exceed uint128");
+  return accrued;
 }
 
 function asBigInt(value: unknown, label: string): bigint {
