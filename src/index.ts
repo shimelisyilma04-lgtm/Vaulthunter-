@@ -97,6 +97,9 @@ async function runMorphoIndexerLoop(): Promise<void> {
     batchBlocks: config.MORPHO_INDEXER_BATCH_BLOCKS,
     maxBatchesPerPass: config.MORPHO_INDEXER_MAX_BATCHES_PER_PASS,
     liveLookbackBlocks: config.MORPHO_LIVE_LOOKBACK_BLOCKS,
+    marketsToRefreshPerPass: config.MORPHO_MARKETS_TO_REFRESH_PER_PASS,
+    snapshotBatchSize: config.MORPHO_SNAPSHOT_BATCH_SIZE,
+    pollIntervalMs: config.MORPHO_POLL_INTERVAL_MS,
     rpcSource: config.MORPHO_RPC_URL ? "MORPHO_RPC_URL" : "ETHEREUM_RPC_URL",
     executionEnabled: false
   }, "Starting Morpho Blue Ethereum indexer in read-only mode");
