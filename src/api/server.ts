@@ -234,10 +234,6 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             send(res, 503, { error: "multichain_fork_not_configured", message: "Set BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL for a private Anvil fork, and provide network=base or network=arbitrum." });
             return;
           }
-        if (!config.ETHEREUM_FORK_RPC_URL) {
-          send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
-          return;
-        }
         if (typeof body.to !== "string" || typeof body.data !== "string" ||
               (body.value !== undefined && typeof body.value !== "string") ||
               (body.from !== undefined && typeof body.from !== "string")) {
@@ -280,6 +276,10 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           } catch (error) {
             send(res, 422, { error: "aave_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Aave liquidation call reverted or simulation failed", transactionSubmitted: false });
           }
+          return;
+        }
+        if (!config.ETHEREUM_FORK_RPC_URL) {
+          send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
           return;
         }
         if (typeof body.to !== "string" || typeof body.data !== "string" ||
