@@ -171,6 +171,7 @@ contract IsolatedExecutorHarness is IAaveSimpleReceiverHarness, IMorphoLiquidate
         require(premium <= p.maxPremium, "AAVE_PREMIUM");
         aaveCallbackEntered = true;
 
+        IERC20Harness(p.debtToken).approve(address(aavePool), amount);
         aavePool.liquidationCall(p.collateralToken, p.debtToken, p.borrower, amount, false);
         IERC20Harness(p.collateralToken).approve(address(router), p.seized);
         uint256 beforeOut = IERC20Harness(p.debtToken).balanceOf(address(this));
