@@ -23,6 +23,7 @@ interface ApiMarket {
   oracle_address: string; irm_address: string; lltv_wad: string; creation_block_number: string;
 }
 interface ApiPage<T> { data: T[]; cursor: string | null; }
+interface BorrowerEvent { marketId: string; address: string; }
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20000) });
@@ -53,18 +54,22 @@ export async function listMorphoEthereumMarkets(): Promise<MorphoMarket[]> {
   return result;
 }
 
-function decodeBorrowers(logs: Log[]): string[] {
-  const addresses = new Set<string>();
+function decodeBorrowerEvents(logs: Log[]): BorrowerEvent[] {
+  const entries = new Map<string, BorrowerEvent>();
   for (const log of logs) {
     try {
       const parsed = morphoInterface.parseLog(log);
+      const marketId = log.topics[1]?.toLowerCase();
       const borrower = parsed?.name === "Liquidate"
         ? parsed.args.borrower as string
         : parsed?.args.onBehalf as string | undefined;
-      if (borrower) addresses.add(getAddress(borrower));
+      if (marketId && borrower) {
+        const address = getAddress(borrower);
+        entries.set(`${marketId}:${address.toLowerCase()}`, { marketId, address });
+      }
     } catch { /* Ignore unknown event records. */ }
   }
-  return [...addresses];
+  return [...entries.values()];
 }
 
 function ceilDiv(a: bigint, b: bigint): bigint {
@@ -74,7 +79,9 @@ function ceilDiv(a: bigint, b: bigint): bigint {
 
 export interface MorphoScanResult {
   chainId: 1; latestBlock: number; marketsDiscovered: number;
+  indexedFromBlock: number; indexedThroughBlock: number;
   marketBatchesIndexed: number; borrowersDiscovered: number;
+  indexerCaughtUp: boolean; marketsRefreshed: number;
   positionsChecked: number; readFailures: number;
   candidates: Array<{
     marketId: string; borrower: string; observedBlock: number;
@@ -92,80 +99,96 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
     const head = await provider.getBlockNumber();
     const safeHead = Math.max(0, head - config.MORPHO_CONFIRMATIONS);
     const markets = await listMorphoEthereumMarkets();
-    const morpho = new Contract(MORPHO_BLUE_ETHEREUM, MORPHO_ABI, provider);
-    let marketBatchesIndexed = 0, borrowersDiscovered = 0, positionsChecked = 0, readFailures = 0;
+    if (markets.length === 0) throw new Error("Morpho API returned no Ethereum Blue markets");
+    for (const market of markets) store.upsertMarket(market);
+
+    const startBlock = Math.min(...markets.map((m) => m.creationBlock));
+    let checkpoint = store.getGlobalCheckpoint(1);
+    if (checkpoint) {
+      const canonical = await provider.getBlock(checkpoint.lastBlock);
+      if (!canonical?.hash || canonical.hash.toLowerCase() !== checkpoint.lastBlockHash.toLowerCase()) {
+        store.resetGlobalCheckpoint(1);
+        checkpoint = null;
+      }
+    }
+    let nextBlock = checkpoint ? checkpoint.lastBlock + 1 : startBlock;
+    let marketBatchesIndexed = 0, borrowersDiscovered = 0, readFailures = 0;
+    while (nextBlock <= safeHead && marketBatchesIndexed < config.MORPHO_INDEXER_MAX_BATCHES_PER_PASS) {
+      const toBlock = Math.min(safeHead, nextBlock + config.MORPHO_INDEXER_BATCH_BLOCKS - 1);
+      let logs: Log[];
+      try {
+        logs = await provider.getLogs({
+          address: MORPHO_BLUE_ETHEREUM, fromBlock: nextBlock, toBlock,
+          topics: [positionTopics]
+        });
+      } catch {
+        readFailures += 1;
+        break;
+      }
+      const block = await provider.getBlock(toBlock);
+      if (!block?.hash) throw new Error(`Cannot verify Morpho block ${toBlock}`);
+      const entries = decodeBorrowerEvents(logs);
+      store.saveGlobalBatch(1, entries, toBlock, block.hash);
+      borrowersDiscovered += entries.length;
+      marketBatchesIndexed += 1;
+      nextBlock = toBlock + 1;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const latestCheckpoint = store.getGlobalCheckpoint(1);
+    const indexedThroughBlock = latestCheckpoint?.lastBlock ?? startBlock - 1;
+    const indexerCaughtUp = indexedThroughBlock >= safeHead;
+    let marketsRefreshed = 0, positionsChecked = 0;
     const candidates: MorphoScanResult["candidates"] = [];
 
-    for (const market of markets) {
-      store.upsertMarket(market);
-      let checkpoint = store.getCheckpoint(1, market.marketId);
-      if (checkpoint) {
-        const canonical = await provider.getBlock(checkpoint.lastBlock);
-        if (!canonical?.hash || canonical.hash.toLowerCase() !== checkpoint.lastBlockHash.toLowerCase()) {
-          store.resetMarketCheckpoint(1, market.marketId);
-          checkpoint = null;
-        }
-      }
-      let next = checkpoint ? checkpoint.lastBlock + 1 : market.creationBlock;
-      while (next <= safeHead) {
-        const to = Math.min(safeHead, next + config.MORPHO_INDEXER_BATCH_BLOCKS - 1);
-        let logs: Log[];
+    if (indexerCaughtUp) {
+      const offset = store.getSnapshotMarketOffset(1) % markets.length;
+      const count = Math.min(config.MORPHO_MARKETS_TO_REFRESH_PER_PASS, markets.length);
+      const selected = Array.from({ length: count }, (_, i) => markets[(offset + i) % markets.length]!);
+      const morpho = new Contract(MORPHO_BLUE_ETHEREUM, MORPHO_ABI, provider);
+      for (const market of selected) {
+        const borrowers = store.listBorrowers(1, market.marketId, config.MORPHO_SNAPSHOT_BATCH_SIZE);
+        if (borrowers.length === 0) continue;
         try {
-          logs = await provider.getLogs({
-            address: MORPHO_BLUE_ETHEREUM, fromBlock: next, toBlock: to,
-            topics: [positionTopics, market.marketId]
-          });
-        } catch {
-          readFailures += 1;
-          break;
-        }
-        const block = await provider.getBlock(to);
-        if (!block?.hash) throw new Error(`Cannot verify Morpho block ${to}`);
-        const borrowers = decodeBorrowers(logs);
-        store.saveBatch(1, market.marketId, borrowers, to, block.hash);
-        borrowersDiscovered += borrowers.length;
-        marketBatchesIndexed += 1;
-        next = to + 1;
-        await new Promise((resolve) => setTimeout(resolve, 100));
+          const [state, priceRaw] = await Promise.all([
+            morpho.getFunction("market")(market.marketId, { blockTag: head }) as Promise<readonly [bigint,bigint,bigint,bigint,bigint,bigint]>,
+            new Contract(market.oracleAddress, ORACLE_ABI, provider).getFunction("price")({ blockTag: head }) as Promise<bigint>
+          ]);
+          const totalBorrowAssets = BigInt(state[2]), totalBorrowShares = BigInt(state[3]), price = BigInt(priceRaw);
+          if (totalBorrowShares === 0n || price === 0n) continue;
+          for (const borrower of borrowers) {
+            try {
+              const position = await morpho.getFunction("position")(market.marketId, borrower.address, { blockTag: head }) as readonly [bigint,bigint,bigint];
+              const borrowShares = BigInt(position[1]), collateralAssets = BigInt(position[2]);
+              const debtAssets = borrowShares === 0n ? 0n : ceilDiv(borrowShares * totalBorrowAssets, totalBorrowShares);
+              const collateralValue = collateralAssets * price / (10n ** 36n);
+              const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(market.lltvWad) / debtAssets;
+              store.saveSnapshot({
+                chainId: 1, marketId: market.marketId, address: borrower.address, observedBlock: head,
+                borrowShares: borrowShares.toString(), debtAssets: debtAssets.toString(),
+                collateralAssets: collateralAssets.toString(), oraclePrice: price.toString(),
+                lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString()
+              });
+              positionsChecked += 1;
+              if (debtAssets > 0n && healthFactor < WAD) candidates.push({
+                marketId: market.marketId, borrower: borrower.address, observedBlock: head,
+                debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
+                oraclePrice: price.toString(), lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString()
+              });
+            } catch { readFailures += 1; }
+          }
+        } catch { readFailures += 1; }
+        marketsRefreshed += 1;
       }
-
-      const latest = store.getCheckpoint(1, market.marketId);
-      if (!latest || latest.lastBlock < safeHead) continue;
-      const borrowers = store.listBorrowers(1, market.marketId, config.MORPHO_SNAPSHOT_BATCH_SIZE);
-      if (!borrowers.length) continue;
-      try {
-        const [state, priceRaw] = await Promise.all([
-          morpho.getFunction("market")(market.marketId, { blockTag: head }) as Promise<readonly [bigint,bigint,bigint,bigint,bigint,bigint]>,
-          new Contract(market.oracleAddress, ORACLE_ABI, provider).getFunction("price")({ blockTag: head }) as Promise<bigint>
-        ]);
-        const totalBorrowAssets = BigInt(state[2]), totalBorrowShares = BigInt(state[3]), price = BigInt(priceRaw);
-        if (totalBorrowShares === 0n || price === 0n) continue;
-        for (const borrower of borrowers) {
-          try {
-            const position = await morpho.getFunction("position")(market.marketId, borrower.address, { blockTag: head }) as readonly [bigint,bigint,bigint];
-            const borrowShares = BigInt(position[1]), collateralAssets = BigInt(position[2]);
-            const debtAssets = borrowShares === 0n ? 0n : ceilDiv(borrowShares * totalBorrowAssets, totalBorrowShares);
-            const collateralValue = collateralAssets * price / (10n ** 36n);
-            const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(market.lltvWad) / debtAssets;
-            store.saveSnapshot({
-              chainId: 1, marketId: market.marketId, address: borrower.address, observedBlock: head,
-              borrowShares: borrowShares.toString(), debtAssets: debtAssets.toString(),
-              collateralAssets: collateralAssets.toString(), oraclePrice: price.toString(),
-              lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString()
-            });
-            positionsChecked += 1;
-            if (debtAssets > 0n && healthFactor < WAD) candidates.push({
-              marketId: market.marketId, borrower: borrower.address, observedBlock: head,
-              debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
-              oraclePrice: price.toString(), lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString()
-            });
-          } catch { readFailures += 1; }
-        }
-      } catch { readFailures += 1; }
+      store.saveSnapshotMarketOffset(1, (offset + count) % markets.length);
     }
+
     candidates.sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
-    return { chainId:1, latestBlock:head, marketsDiscovered:markets.length,
-      marketBatchesIndexed, borrowersDiscovered, positionsChecked, readFailures,
-      candidates, executionEnabled:false };
+    return {
+      chainId: 1, latestBlock: head, marketsDiscovered: markets.length,
+      indexedFromBlock: startBlock, indexedThroughBlock, marketBatchesIndexed,
+      borrowersDiscovered, indexerCaughtUp, marketsRefreshed, positionsChecked,
+      readFailures, candidates, executionEnabled: false
+    };
   } finally { await provider.destroy(); }
 }
