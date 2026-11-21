@@ -3,13 +3,9 @@ import { config } from "../config.js";
 import { WAD } from "../domain/liquidation.js";
 import { accrueMorphoBorrowDebt } from "./accrual.js";
 import { MorphoStore, type MorphoMarket } from "./store.js";
-import { accrueMorphoBorrowDebt } from "./accrual.js";
 
 export const MORPHO_BLUE_ETHEREUM = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
 const ORACLE_ABI = ["function price() view returns (uint256)"];
-const IRM_ABI = [
-  "function borrowRateView((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv),(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee)) view returns (uint256)"
-];
 const MORPHO_ABI = [
   "event Borrow(bytes32 indexed id,address caller,address indexed onBehalf,address indexed receiver,uint256 assets,uint256 shares)",
   "event Repay(bytes32 indexed id,address indexed caller,address indexed onBehalf,uint256 assets,uint256 shares)",
