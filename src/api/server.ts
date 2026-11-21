@@ -373,10 +373,13 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
           counts: {
             marketsDiscovered: stats.marketCount,
             borrowersDiscovered: stats.borrowerCount,
-            liquidationEligibleSnapshots: stats.candidateCount
+            liquidationEligibleFreshSnapshots: stats.candidateCount,
+            refreshedLast2Minutes: stats.refreshedLast2Minutes
           },
+          latestSnapshotAt: stats.latestSnapshotAt,
           latestSnapshotBlock: stats.latestSnapshotBlock,
-          warning: "Event-derived borrower discovery and refreshed snapshots are incomplete. A health factor below 1 is a screening signal, not proof of a profitable or executable liquidation."
+          candidateFreshnessWindowSeconds: 60,
+          warning: "Only snapshots refreshed within 60 seconds are returned as liquidation candidates. Health factor below 1 is a screening signal, not proof of profitability, funding, or executable liquidation."
         });
         return;
       }
@@ -406,7 +409,7 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
           source: "postgresql-indexed-morpho-position-snapshots",
           ranking: "lowest-health-factor-first",
           executionEnabled: false,
-          warning: "Health factor below 1 indicates liquidation eligibility at the recorded snapshot only. snapshotFresh means the row was refreshed within 60 seconds; it is not proof of current eligibility, profitability, available loan funding, or executable liquidation. Revalidate at a fresh pinned block before any decision."
+          warning: "Candidates are filtered to snapshots refreshed within 60 seconds and remain screening signals only. Revalidate health factor, oracle, debt, collateral, loan liquidity, and funding at one fresh pinned block before any decision. No transaction is submitted."
         });
         return;
       }
