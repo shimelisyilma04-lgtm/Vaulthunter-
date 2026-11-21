@@ -18,6 +18,7 @@ import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../d
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
 import { inspectMorphoBluePosition } from "../morpho/blue.js";
+import { evaluateMorphoOpportunities } from "../morpho/opportunities.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -35,7 +36,7 @@ const RATE_WINDOW_MS = 60_000;
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
   if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain") return { key: "fork-simulation", max: 5 };
-  if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
+  if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate" || pathname === "/api/v1/morpho/opportunities") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
@@ -381,6 +382,20 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
           candidateFreshnessWindowSeconds: 60,
           warning: "Only snapshots refreshed within 60 seconds are returned as liquidation candidates. Health factor below 1 is a screening signal, not proof of profitability, funding, or executable liquidation."
         });
+        return;
+      }
+      if (url.pathname === "/api/v1/morpho/opportunities") {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable", message: "Morpho monitoring storage is not configured." });
+          return;
+        }
+        if (!config.MORPHO_RPC_URL) {
+          send(res, 503, { error: "morpho_rpc_not_configured", message: "Set MORPHO_RPC_URL to enable pinned-block opportunity validation." });
+          return;
+        }
+        const limit = Math.max(1, Math.min(20, limitFrom(url, 10, 20)));
+        const data = await evaluateMorphoOpportunities(morphoStore, limit);
+        send(res, 200, data);
         return;
       }
       if (url.pathname === "/api/v1/morpho/risk") {
