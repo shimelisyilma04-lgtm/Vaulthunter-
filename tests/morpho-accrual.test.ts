@@ -8,16 +8,17 @@ describe("Morpho Blue accrued borrow debt", () => {
     const first = rate * elapsed;
     const second = first * first / (2n * MORPHO_WAD);
     const third = second * first / (3n * MORPHO_WAD);
-    expect(morphoTaylorCompounded(rate, elapsed)).toBe(first + second + third);
+    expect(morphoTaylorCompounded(rate, elapsed)).toBe(32_038_486_841_419_776n);
+    expect(first + second + third).toBe(32_038_486_841_419_776n);
   });
   it("accrues market borrow assets and rounds borrower debt up", () => {
     const result = accrueMorphoBorrowDebt({
       totalBorrowAssets: 1_000_000n, totalBorrowShares: 3n, borrowShares: 1n,
       borrowRateWadPerSecond: 1_000_000_000n, elapsedSeconds: 31_536_000n
     });
-    expect(result.accruedInterestAssets).toBeGreaterThan(0n);
+    expect(result.accruedInterestAssets).toBe(32_038n);
     expect(result.accruedTotalBorrowAssets).toBe(1_000_000n + result.accruedInterestAssets);
-    expect(result.borrowerDebtAssetsUp).toBe((result.accruedTotalBorrowAssets + 2n) / 3n);
+    expect(result.borrowerDebtAssetsUp).toBe(344_013n);
   });
   it("returns zero debt for zero borrower shares", () => {
     expect(accrueMorphoBorrowDebt({
