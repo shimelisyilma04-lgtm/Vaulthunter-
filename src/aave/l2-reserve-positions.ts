@@ -618,6 +618,7 @@ export async function getAaveL2FlashLoanTerms(args: {
       addressesProvider.getFunction("getPriceOracle").staticCall({ blockTag: args.blockNumber })
     ]);
     const poolAddress = getAddress(String(poolRaw));
+    if (poolAddress !== getAddress(deployment.expectedPool)) throw new Error("Aave flash-loan terms resolved an unexpected Pool proxy for " + args.network + ".");
     const oracleAddress = getAddress(String(oracleRaw));
     const pool = new Contract(poolAddress, POOL_ABI, provider);
     const reserveRaw = await pool.getFunction("getReserveData").staticCall(args.asset, { blockTag: args.blockNumber }) as readonly unknown[];
