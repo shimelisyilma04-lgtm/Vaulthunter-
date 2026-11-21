@@ -6,9 +6,9 @@
 - Indexes Borrow, Repay, SupplyCollateral, WithdrawCollateral and Liquidate events from the Morpho Blue contract.
 - Stores discovered market/borrower state and a block-hash checkpoint in PostgreSQL when `DATABASE_URL` is configured.
 - Verifies the saved checkpoint against the canonical chain and resets discovered borrowers if a reorganization invalidates the checkpoint.
-- Refreshes borrower positions, market totals, oracle prices, loan-token liquidity and IRM rate views at one pinned Ethereum block.
+- Refreshes borrower positions, market totals, oracle prices and IRM rate views at one pinned Ethereum block. Liquidator funding is deliberately left unverified.
 - Accrues debt using Morpho's three-term Taylor compounding and virtual-share rounding.
-- Produces a full-position diagnostic liquidation quote, including repayment, collateral seizure and loan-token liquidity checks.
+- Produces a full-position diagnostic liquidation quote, including repayment and collateral seizure calculations. The scanner sets available liquidator funding to zero because no wallet or flash-loan source is integrated.
 - Does not construct calldata, sign, broadcast or submit transactions.
 
 ## Enable it on Render
@@ -48,7 +48,7 @@ Both commands require `ETHEREUM_RPC_URL`. In production, the indexer also requir
 - The market discovery list is capped by `MORPHO_MAX_MARKETS`; event discovery scans the Morpho Blue contract's supported position events, but snapshot refresh only covers markets returned by the market API.
 - Historical indexing begins at the earliest creation block among the discovered markets. It can require a very large number of `eth_getLogs` requests and may take many hours or days. Free RPC quotas may be insufficient.
 - Borrower addresses are discovered from position events; this is not a guarantee that every historical borrower or every current market has been refreshed.
-- The quote currently evaluates repayment of all indexed borrower borrow shares as a diagnostic upper-bound case. It is not an optimal partial-liquidation size, not a DEX route, not net profit, and not an execution recommendation.
+- The quote currently evaluates repayment of all indexed borrower borrow shares as a diagnostic upper-bound case. The scanner does not claim the liquidator has funding; its funding input is zero and the funding sufficiency flag remains false. The quote is not an optimal partial-liquidation size, not a DEX route, not net profit, and not an execution recommendation.
 - The scanner's IRM `borrowRateView` accrual is a screening approximation that still requires parity testing against Morpho's stateful accrual path and protocol test vectors.
 - Loan-token balance at Morpho is a market-level balance check, not proof that a specific liquidation callback, funding route, or swap can settle.
 - No flash-loan callback, DEX execution route, transaction builder, signer or broadcaster is included.
