@@ -24,6 +24,14 @@ const envSchema = z.object({
     z.string().min(1).optional()
   ),
   AAVE_SUBGRAPH_SYNC_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(900000),
+  MORPHO_INDEXER_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  MORPHO_MAX_MARKETS: z.coerce.number().int().min(1).max(1000).default(1000),
+  MORPHO_INDEXER_BATCH_BLOCKS: z.coerce.number().int().min(1).max(2000).default(10),
+  MORPHO_INDEXER_MAX_BATCHES_PER_PASS: z.coerce.number().int().min(1).max(5000).default(100),
+  MORPHO_CONFIRMATIONS: z.coerce.number().int().min(1).max(256).default(12),
+  MORPHO_SNAPSHOT_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
+  MORPHO_MARKETS_TO_REFRESH_PER_PASS: z.coerce.number().int().min(1).max(1000).default(25),
+  MORPHO_POLL_INTERVAL_MS: z.coerce.number().int().min(5000).max(3600000).default(30000),
   AAVE_SCAN_LOOKBACK_BLOCKS: z.coerce.number().int().min(1).max(10000).default(100),
   AAVE_INDEXER_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   AAVE_INDEXER_START_BLOCK: z.preprocess(
