@@ -9,7 +9,8 @@
 ## Components
 
 - Chain connectors: typed RPC clients, chain metadata, block pinning, retry/rate-limit policy.
-- Protocol adapters: isolated Aave V3 and future Morpho Blue readers built from verified official interfaces.
+- Protocol adapters: Aave V3 and Morpho Blue read-only readers with pinned-block market/position/oracle reads.
+- Morpho Blue: Ethereum market discovery, confirmation-aware event indexing, IRM-based accrued-debt screening, virtual-share rounding, and a protocol-math full-position liquidation diagnostic quote.
 - Historical indexer: incremental event ingestion, durable checkpoints, confirmation-depth reorg recovery, and borrower aggregates.
 - Storage: SQLite for the single-writer low-cost deployment; use a persistent volume and backups.
 - Liquidation engine: protocol-specific eligibility checks and candidate normalization.
