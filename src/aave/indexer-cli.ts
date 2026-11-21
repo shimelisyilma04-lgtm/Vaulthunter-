@@ -28,7 +28,20 @@ async function main(): Promise<void> {
   try {
     do {
       const result = await runAaveIndexerPass(config.ETHEREUM_RPC_URL, store);
-      logger.info(result, "Aave historical indexing pass completed");
+      logger.info({ ...result, candidates: undefined }, "Aave historical indexing pass completed");
+      for (const candidate of result.candidates) {
+        logger.warn({
+          protocol: "aave-v3",
+          chainId: 1,
+          borrower: candidate.address,
+          observedBlock: candidate.observedBlock,
+          totalCollateralBase: candidate.totalCollateralBase,
+          totalDebtBase: candidate.totalDebtBase,
+          healthFactorWad: candidate.healthFactorWad,
+          snapshotUpdatedAt: candidate.snapshotUpdatedAt,
+          executionEnabled: false
+        }, "Potential Aave liquidation candidate — monitoring only; revalidate before any action");
+      }
       if (once || stopping) break;
       // While historical blocks remain, continue immediately instead of idling 30 seconds
       // after every 10-block batch. Poll at the configured interval only when caught up.
