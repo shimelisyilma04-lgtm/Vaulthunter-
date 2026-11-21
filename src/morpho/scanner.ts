@@ -203,9 +203,10 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       borrowersDiscovered += entries.length;
       marketBatchesIndexed += 1;
       nextBlock = toBlock + 1;
-      // Keep the archive RPC below common free-tier credit limits: one getLogs
-      // (255 CU on Infura) plus one getBlock (80 CU) per second stays under 500 CU/s.
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Ankr Ethereum Freemium allows about 30 Node API requests/second.
+      // The history loop makes two RPC calls per batch; 250ms keeps it near
+      // 8 requests/second, leaving headroom for market and borrower snapshots.
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     const latestCheckpoint = await store.getGlobalCheckpoint(1);
