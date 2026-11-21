@@ -37,8 +37,9 @@ A production candidate must be written separately from the mock harness and must
 
 ## 3. Fork test coverage
 
-- [ ] Fork tests for actual Aave Base and Arbitrum liquidation transactions with known liquidatable borrowers.
-- [ ] Fork tests for actual Morpho Base and Arbitrum liquidations with valid market/borrower fixtures.
+- [ ] Configure valid, current Aave borrower fixtures and pass the transaction-level Base/Arbitrum tests (`AAVE_BASE_BORROWER`, `AAVE_BASE_COLLATERAL`, `AAVE_BASE_DEBT`, `AAVE_BASE_DEBT_TO_COVER`; corresponding `AAVE_ARBITRUM_*` variables).
+- [ ] Configure valid, current Morpho borrower fixtures and pass the transaction-level Base/Arbitrum tests (`MORPHO_BASE_LIQUIDATION_MARKET_ID`, `MORPHO_BASE_LIQUIDATION_BORROWER`, `MORPHO_BASE_LIQUIDATION_REPAID_SHARES`; corresponding `MORPHO_ARBITRUM_*` variables).
+- [ ] Run the same Morpho accrual differential on Arbitrum with `MORPHO_ARBITRUM_MARKET_ID` set to a live Blue market ID.
 - [ ] Test exact collateral seized, debt repaid, protocol fee, flash-loan premium, swap output and final profit.
 - [ ] Test stale quote, changed health factor, changed oracle price, insufficient liquidity, fee-on-transfer token, paused/frozen reserve, eMode mismatch, bad debt, callback replay, unauthorized callback, reentrancy, wrong chain, wrong market, wrong borrower, wrong token, excessive premium and failed swap.
 - [ ] Fuzz amount boundaries and rounding; invariant-test no residual debt, no unexpected token loss, no lingering approvals, no unauthorized calls and no execution below minimum profit.
@@ -79,3 +80,8 @@ An internal code review, a green CI run, or this checklist does not substitute f
 - Direct `getRevision()` calls reverted on both Aave Pool proxies in the first fork attempt, so that getter is not used as a version signal.
 - The Aave selected-reserve close-factor helper was corrected and unit tests were updated. Fork differential verification against valid borrowers is still outstanding.
 - The mock executor harness has passed in earlier CI runs. It is not production executor code.
+
+
+## Optional local-fork liquidation fixtures
+
+The fork test contract includes opt-in tests that call the actual Aave Pool or Morpho Blue singleton on a local fork. They skip when the corresponding environment variables are absent. Aave fixtures must identify a borrower whose health factor is below 1 at the fork's current block, plus a valid collateral reserve, debt reserve and debt-to-cover amount. Morpho fixtures must identify a liquidatable borrower, market ID and positive repaid share amount. These tests do not submit transactions to the live networks; they mutate only Foundry's local fork. The current CI intentionally does not invent borrower fixtures, so these transaction-level cases remain unexecuted until verified fixtures are supplied.
