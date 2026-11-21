@@ -90,10 +90,21 @@ export class PostgresMorphoStore implements MorphoStorePort {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      for (const entry of entries) {
+      // Batch borrower inserts instead of issuing one PostgreSQL round trip
+      // per event. Chunk below PostgreSQL's 65,535 bind-parameter limit.
+      for (let offset = 0; offset < entries.length; offset += 500) {
+        const batch = entries.slice(offset, offset + 500);
+        if (batch.length === 0) continue;
+        const values = batch.map((_, index) => {
+          const base = index * 3;
+          return "(" + "$" + (base + 1) + ",$" + (base + 2) + ",$" + (base + 3) + ")";
+        }).join(",");
+        const params = batch.flatMap((entry) => [
+          chainId, entry.marketId.toLowerCase(), entry.address.toLowerCase()
+        ]);
         await client.query(
-          "INSERT INTO morpho_borrowers(chain_id,market_id,address) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
-          [chainId,entry.marketId.toLowerCase(),entry.address.toLowerCase()]
+          `INSERT INTO morpho_borrowers(chain_id,market_id,address) VALUES ${values} ON CONFLICT DO NOTHING`,
+          params
         );
       }
       await client.query(`
