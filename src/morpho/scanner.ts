@@ -131,6 +131,7 @@ export interface MorphoScanResult {
   indexedFromBlock: number; indexedThroughBlock: number;
   marketBatchesIndexed: number; borrowersDiscovered: number;
   liveWindowFromBlock: number; liveBorrowersDiscovered: number; liveDiscoverySucceeded: boolean;
+  liveDiscoveryError?: string;
   indexerCaughtUp: boolean; marketsRefreshed: number;
   positionsChecked: number; readFailures: number;
   candidates: Array<{
@@ -210,24 +211,37 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
-    const liveWindowFromBlock = Math.max(startBlock, safeHead - config.MORPHO_LIVE_LOOKBACK_BLOCKS + 1);
+    let liveLookbackBlocks = config.MORPHO_LIVE_LOOKBACK_BLOCKS;
+    let liveWindowFromBlock = Math.max(0, safeHead - liveLookbackBlocks + 1);
     let liveBorrowersDiscovered = 0;
-    let liveDiscoverySucceeded = true;
-    try {
-      const recentLogs = await provider.getLogs({
-        address: MORPHO_BLUE_ETHEREUM,
-        fromBlock: liveWindowFromBlock,
-        toBlock: safeHead,
-        topics: [positionTopics]
-      });
-      const recentEntries = decodeBorrowerEvents(recentLogs);
-      await store.saveDiscoveredBorrowers(1, recentEntries);
-      liveBorrowersDiscovered = recentEntries.length;
-      for (const entry of recentEntries) discoveredMarketIds.add(entry.marketId);
-    } catch {
-      liveDiscoverySucceeded = false;
-      readFailures += 1;
+    let liveDiscoverySucceeded = false;
+    let liveDiscoveryError: string | undefined;
+    for (let attempt = 0; attempt < 3 && !liveDiscoverySucceeded; attempt += 1) {
+      liveWindowFromBlock = Math.max(0, safeHead - liveLookbackBlocks + 1);
+      try {
+        const recentLogs = await provider.getLogs({
+          address: MORPHO_BLUE_ETHEREUM,
+          fromBlock: liveWindowFromBlock,
+          toBlock: safeHead,
+          topics: [positionTopics]
+        });
+        const recentEntries = decodeBorrowerEvents(recentLogs);
+        await store.saveDiscoveredBorrowers(1, recentEntries);
+        liveBorrowersDiscovered = recentEntries.length;
+        for (const entry of recentEntries) discoveredMarketIds.add(entry.marketId);
+        liveDiscoverySucceeded = true;
+        liveDiscoveryError = undefined;
+      } catch (error) {
+        liveDiscoveryError = error instanceof Error ? error.message : String(error);
+        if (attempt < 2) {
+          if (!/429|rate.?limit|too many requests/i.test(liveDiscoveryError)) {
+            liveLookbackBlocks = Math.max(100, Math.floor(liveLookbackBlocks / 2));
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** attempt)));
+        }
+      }
     }
+    if (!liveDiscoverySucceeded) readFailures += 1;
 
     const latestCheckpoint = await store.getGlobalCheckpoint(1);
     const indexedThroughBlock = latestCheckpoint?.lastBlock ?? startBlock - 1;
@@ -394,6 +408,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       chainId: 1, latestBlock: head, marketsDiscovered: marketsById.size,
       indexedFromBlock: startBlock, indexedThroughBlock, marketBatchesIndexed,
       borrowersDiscovered, liveWindowFromBlock, liveBorrowersDiscovered, liveDiscoverySucceeded,
+      ...(liveDiscoveryError ? { liveDiscoveryError } : {}),
       indexerCaughtUp, marketsRefreshed, positionsChecked,
       readFailures, candidates, executionEnabled: false
     };
