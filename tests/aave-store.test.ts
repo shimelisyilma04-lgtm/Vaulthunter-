@@ -13,41 +13,6 @@ const makeStore = (): AaveStore => {
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  it("returns only refreshed liquidatable accounts ordered by lowest health factor", () => {
-    const store = makeStore();
-    const second = {
-      ...event,
-      txHash: "0xdef",
-      borrower: "0x0000000000000000000000000000000000000004"
-    };
-    store.saveEventsAndCheckpoint("aave-v3", 1, event.poolAddress, [event, second], 100, "0xblock100");
-    store.saveSnapshot({
-      chainId: 1,
-      poolAddress: event.poolAddress,
-      address: event.borrower,
-      observedBlock: 200,
-      totalCollateralBase: "1000000",
-      totalDebtBase: "900000",
-      healthFactorWad: "950000000000000000",
-      liquidationEligible: true
-    });
-    store.saveSnapshot({
-      chainId: 1,
-      poolAddress: event.poolAddress,
-      address: second.borrower,
-      observedBlock: 200,
-      totalCollateralBase: "1000000",
-      totalDebtBase: "800000",
-      healthFactorWad: "990000000000000000",
-      liquidationEligible: true
-    });
-    expect(store.listCandidates(1, event.poolAddress).map((candidate) => candidate.address)).toEqual([
-      event.borrower,
-      second.borrower
-    ]);
-    store.close();
-  });
-
 });
 
 const event = {
@@ -92,6 +57,41 @@ describe("Aave persistent event store", () => {
     expect(store.getStats(1, event.poolAddress).eventCount).toBe(1);
     expect(store.getCheckpoint("aave-v3", 1, event.poolAddress)?.lastBlock).toBe(100);
     expect(store.listBorrowers(1, event.poolAddress)[0]?.lastSeenBlock).toBe(100);
+    store.close();
+  });
+
+  it("returns refreshed liquidation candidates ordered by lowest health factor", () => {
+    const store = makeStore();
+    const second = {
+      ...event,
+      txHash: "0xdef",
+      borrower: "0x0000000000000000000000000000000000000004"
+    };
+    store.saveEventsAndCheckpoint("aave-v3", 1, event.poolAddress, [event, second], 100, "0xblock100");
+    store.saveSnapshot({
+      chainId: 1,
+      poolAddress: event.poolAddress,
+      address: event.borrower,
+      observedBlock: 200,
+      totalCollateralBase: "1000000",
+      totalDebtBase: "900000",
+      healthFactorWad: "950000000000000000",
+      liquidationEligible: true
+    });
+    store.saveSnapshot({
+      chainId: 1,
+      poolAddress: event.poolAddress,
+      address: second.borrower,
+      observedBlock: 200,
+      totalCollateralBase: "1000000",
+      totalDebtBase: "800000",
+      healthFactorWad: "990000000000000000",
+      liquidationEligible: true
+    });
+    expect(store.listCandidates(1, event.poolAddress).map((candidate) => candidate.address)).toEqual([
+      event.borrower,
+      second.borrower
+    ]);
     store.close();
   });
 });
