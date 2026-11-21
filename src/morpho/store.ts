@@ -128,6 +128,11 @@ export class MorphoStore implements MorphoStorePort {
       LIMIT ?
     `).all(chainId, marketId, limit) as MorphoBorrower[];
   }
+  listBorrowerMarketIds(chainId: number): string[] {
+    const rows = this.db.prepare("SELECT DISTINCT market_id AS marketId FROM morpho_borrowers WHERE chain_id=? ORDER BY market_id")
+      .all(chainId) as Array<{ marketId: string }>;
+    return rows.map((row) => row.marketId);
+  }
   saveSnapshot(input: {
     chainId: number; marketId: string; address: string; observedBlock: number;
     borrowShares: string; debtAssets: string; collateralAssets: string;
