@@ -1,5 +1,7 @@
 const WAD = 10n ** 18n;
 const ORACLE_PRICE_SCALE = 10n ** 36n;
+const VIRTUAL_ASSETS = 1n;
+const VIRTUAL_SHARES = 1_000_000n;
 const LIQUIDATION_CURSOR = 3n * 10n ** 17n; // 0.3 WAD
 const MAX_LIQUIDATION_INCENTIVE_FACTOR = 115n * 10n ** 16n; // 1.15 WAD
 
@@ -78,7 +80,9 @@ export function estimateMorphoBlueLiquidation(input: MorphoBlueEstimateInput): M
   }
 
   // Same rounding directions as Morpho Blue: health/debt conversion rounds up.
-  const positionDebtAssets = ceilDiv(positionBorrowShares * totalBorrowAssets, totalBorrowShares);
+  const shareDenominator = totalBorrowShares + VIRTUAL_SHARES;
+  const shareNumerator = positionBorrowShares * (totalBorrowAssets + VIRTUAL_ASSETS);
+  const positionDebtAssets = ceilDiv(shareNumerator, shareDenominator);
   const maxBorrowAtLltv = (collateralAssets * price / ORACLE_PRICE_SCALE) * lltv / WAD;
   const eligibleByHealthCheck = maxBorrowAtLltv < positionDebtAssets;
 
@@ -92,8 +96,8 @@ export function estimateMorphoBlueLiquidation(input: MorphoBlueEstimateInput): M
 
   // Morpho.sol uses toAssetsDown + wMulDown for collateral seizure, but
   // toAssetsUp for the loan-token amount actually repaid.
-  const repaymentAssetsDown = repaidShares * totalBorrowAssets / totalBorrowShares;
-  const repaidAssets = ceilDiv(repaidShares * totalBorrowAssets, totalBorrowShares);
+  const repaymentAssetsDown = repaidShares * (totalBorrowAssets + VIRTUAL_ASSETS) / shareDenominator;
+  const repaidAssets = ceilDiv(repaidShares * (totalBorrowAssets + VIRTUAL_ASSETS), shareDenominator);
   const seizedValue = repaymentAssetsDown * lif / WAD;
   const collateralSeizedAssets = seizedValue * ORACLE_PRICE_SCALE / price;
   const seizedCollateralValueInLoanUnits = collateralSeizedAssets * price / ORACLE_PRICE_SCALE;
@@ -118,11 +122,12 @@ export function estimateMorphoBlueLiquidation(input: MorphoBlueEstimateInput): M
     assumptions: [
       "Market totals, borrower position, LLTV and oracle price must come from the same pinned block after interest accrual is accounted for.",
       "Morpho Blue has no fixed close factor; repaidShares selects a partial or full share repayment.",
+      "Borrow-share conversions include Morpho core virtual assets (1) and virtual shares (1e6).",
       "Morpho Blue's core LIF formula and integer rounding directions are mirrored for this estimate.",
       "All cost inputs are loan-token base units; no token-decimal or USD conversion is performed."
     ],
     warnings: [
-      "The estimate does not accrue interest locally; use a fork or current-state simulation to validate accrued market totals.",
+      "This pure calculator expects market totals already accrued to the supplied snapshot; its caller must source those totals using the market IRM view method and Morpho Taylor compounding at the same block timestamp.",
       "A collateral-shortfall result is not executable: Morpho's collateral subtraction would revert if seized assets exceed the position balance.",
       "Swap proceeds, flash-loan availability, gas conversion, MEV, callback correctness and state drift require separate validation.",
       "This is screening only. No transaction is signed or submitted."
