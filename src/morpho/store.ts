@@ -117,7 +117,8 @@ export class MorphoStore {
       WHERE chain_id=? AND market_id=? AND debt_assets IS NOT NULL AND health_factor_wad IS NOT NULL
       LIMIT ?
     `).all(chainId,marketId,limit) as MorphoCandidate[];
-    return rows.filter((r)=>BigInt(r.debtAssets)>0n && BigInt(r.healthFactorWad)<10n**18n)\n      .sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
+    return rows.filter((r)=>BigInt(r.debtAssets)>0n && BigInt(r.healthFactorWad)<10n**18n)
+      .sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
   }
   stats(chainId: number, marketId: string): { borrowers: number; indexedTo: number | null; candidates: number } {
     const borrowers=this.db.prepare("SELECT COUNT(*) AS n FROM morpho_borrowers WHERE chain_id=? AND market_id=?").get(chainId,marketId) as {n:number};
