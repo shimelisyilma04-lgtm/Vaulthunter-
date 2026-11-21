@@ -1,0 +1,55 @@
+name: Morpho PostgreSQL Indexer
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: vaulthunter-morpho-postgres-indexer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  index:
+    name: Run one bounded Morpho indexing pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DATABASE_URL: ${{ secrets.MORPHO_DATABASE_URL }}
+      ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
+      NODE_ENV: production
+      MORPHO_INDEXER_BATCH_BLOCKS: "10"
+      MORPHO_INDEXER_MAX_BATCHES_PER_PASS: "100"
+      MORPHO_MAX_MARKETS: "1000"
+      MORPHO_CONFIRMATIONS: "12"
+      MORPHO_SNAPSHOT_BATCH_SIZE: "10"
+      MORPHO_MARKETS_TO_REFRESH_PER_PASS: "25"
+    steps:
+      - name: Check worker secrets are configured
+        shell: bash
+        run: |
+          if [[ -z "$DATABASE_URL" || -z "$ETHEREUM_RPC_URL" ]]; then
+            echo "Skipped: add MORPHO_DATABASE_URL and ETHEREUM_RPC_URL repository Actions secrets to enable the external indexer." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Required credentials are present; values are never printed."
+
+      - name: Check out the live PostgreSQL-backed service branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/read-only-api-live-dashboard
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run one bounded Morpho indexing pass
+        run: npm run morpho:index:once
