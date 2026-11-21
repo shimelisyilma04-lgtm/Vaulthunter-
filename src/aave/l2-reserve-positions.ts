@@ -211,7 +211,13 @@ export async function inspectAaveL2ReservePositions(args: {
       minBaseThreshold = asBigInt(await pool.getFunction("MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD").staticCall({ blockTag: observedBlock }), "minimum close-factor threshold");
       minLeftover = asBigInt(await pool.getFunction("MIN_LEFTOVER_BASE").staticCall({ blockTag: observedBlock }), "minimum leftover");
     } catch {
-      // The V3.3 liquidation constants are library internals, not guaranteed Pool getters.
+      // Aave V3 Origin defines these as public constants on the linked LiquidationLogic
+      // library, not guaranteed getters on the Pool proxy. Its default profile is
+      // USD with 8 decimals: 2,000e8 close-factor threshold and half that as dust.
+      if (baseCurrencyAddress.toLowerCase() === ZERO && baseUnit === 10n ** 8n) {
+        minBaseThreshold = 2_000n * baseUnit;
+        minLeftover = minBaseThreshold / 2n;
+      }
     }
     let eModeData: { liquidationBonusBps: string; priceSource: string } | null = null;
     if (userEModeCategory > 0) {
@@ -372,7 +378,7 @@ export async function inspectAaveL2ReservePositions(args: {
       minLeftoverBase: minLeftover?.toString() ?? null, reserves, pairs,
       warnings: [
         "All Aave account, reserve, token-balance, price, eMode and flash-premium reads use one confirmed block.",
-        "The calculator fails closed when the deployed Pool does not expose MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD or MIN_LEFTOVER_BASE. Close-factor selection uses the specific debt-reserve and collateral-reserve base values, not total account debt. The rounding profile follows the current aave-v3-origin liquidation logic and still requires deployed-implementation fork verification.",
+        "When Pool getters are unavailable, the calculator uses Aave Origin source constants only for the USD/1e8 base-currency profile (2,000e8 close-factor threshold; 1,000e8 dust threshold); other base-currency profiles fail closed. Close-factor selection uses the specific debt-reserve and collateral-reserve base values, not total account debt. The rounding profile follows current Aave Origin source and still requires deployed-implementation fork verification.",
         "Flash-loan liquidity is a point-in-time underlying balance and can change before execution.",
         blockPriceSourceWarning,
         "This endpoint does not sign, broadcast, or submit transactions."
