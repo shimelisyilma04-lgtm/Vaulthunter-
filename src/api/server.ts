@@ -19,6 +19,8 @@ import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
 import { inspectAaveL2ReservePositions, estimateAaveL2PairNetProfit } from "../aave/l2-reserve-positions.js";
 import { inspectMorphoBluePosition } from "../morpho/blue.js";
 import { estimateMorphoBlueLiveProfitability } from "../morpho/live-profitability.js";
+import { simulateAaveL2DirectLiquidation } from "../aave/l2-fork-simulation.js";
+import { simulateMorphoBlueDirectLiquidation } from "../morpho/fork-simulation.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -35,7 +37,7 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
-  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain") return { key: "fork-simulation", max: 5 };
+  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain" || pathname === "/api/v1/simulation/aave-liquidation/multichain" || pathname === "/api/v1/simulation/morpho-liquidation/multichain") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate" || pathname === "/api/v1/opportunities/multichain") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
@@ -135,7 +137,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       res.end();
       return;
     }
-    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain"].includes(url.pathname);
+    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain", "/api/v1/simulation/aave-liquidation/multichain", "/api/v1/simulation/morpho-liquidation/multichain"].includes(url.pathname);
     if (req.method !== "GET" && !isForkSimulationPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -152,8 +154,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
     }
     try {
       if (isForkSimulationPost) {
-        if (!config.ETHEREUM_FORK_RPC_URL || !config.VAULTHUNTER_SIMULATION_API_TOKEN) {
-          send(res, 503, { error: "fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL and a strong VAULTHUNTER_SIMULATION_API_TOKEN. Use an isolated Anvil/Hardhat fork, never a mainnet transaction broadcaster." });
+        if (!config.VAULTHUNTER_SIMULATION_API_TOKEN) {
+          send(res, 503, { error: "simulation_token_not_configured", message: "Set a strong VAULTHUNTER_SIMULATION_API_TOKEN. Use an isolated Anvil/Hardhat fork, never a mainnet transaction broadcaster." });
           return;
         }
         const suppliedToken = req.headers.authorization?.startsWith("Bearer ")
@@ -176,6 +178,51 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
           return;
         }
+        if (url.pathname === "/api/v1/simulation/aave-liquidation/multichain" ||
+            url.pathname === "/api/v1/simulation/morpho-liquidation/multichain") {
+          const network = body.network;
+          const forkRpcUrl = network === "base" ? process.env.BASE_FORK_RPC_URL
+            : network === "arbitrum" ? process.env.ARBITRUM_FORK_RPC_URL : undefined;
+          if (!forkRpcUrl) {
+            send(res, 503, { error: "multichain_fork_not_configured", message: "Configure the private BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL Anvil fork for the requested network." });
+            return;
+          }
+          try {
+            if (url.pathname === "/api/v1/simulation/aave-liquidation/multichain") {
+              if ((network !== "base" && network !== "arbitrum") ||
+                  typeof body.collateralAsset !== "string" || typeof body.debtAsset !== "string" ||
+                  typeof body.borrower !== "string" || typeof body.debtToCover !== "string" ||
+                  typeof body.receiveAToken !== "boolean" || typeof body.from !== "string") {
+                send(res, 400, { error: "invalid_aave_l2_simulation_request", message: "Provide network, collateralAsset, debtAsset, borrower, positive debtToCover, receiveAToken and from." });
+                return;
+              }
+              const result = await simulateAaveL2DirectLiquidation(forkRpcUrl, {
+                network, collateralAsset: body.collateralAsset, debtAsset: body.debtAsset,
+                borrower: body.borrower, debtToCover: body.debtToCover,
+                receiveAToken: body.receiveAToken, from: body.from
+              }, config.AAVE_INDEXER_CONFIRMATIONS);
+              send(res, 200, { ...result, simulationOnly: true, transactionSubmitted: false });
+              return;
+            }
+            if ((network !== "base" && network !== "arbitrum") ||
+                typeof body.marketId !== "string" || typeof body.borrower !== "string" ||
+                typeof body.from !== "string" ||
+                (body.seizedAssets !== undefined && typeof body.seizedAssets !== "string") ||
+                (body.repaidShares !== undefined && typeof body.repaidShares !== "string")) {
+              send(res, 400, { error: "invalid_morpho_l2_simulation_request", message: "Provide network, marketId, borrower, from, and exactly one of seizedAssets or repaidShares." });
+              return;
+            }
+            const result = await simulateMorphoBlueDirectLiquidation(forkRpcUrl, {
+              network, marketId: body.marketId, borrower: body.borrower, from: body.from,
+              ...(typeof body.seizedAssets === "string" ? { seizedAssets: body.seizedAssets } : {}),
+              ...(typeof body.repaidShares === "string" ? { repaidShares: body.repaidShares } : {})
+            }, config.AAVE_INDEXER_CONFIRMATIONS);
+            send(res, 200, { ...result, simulationOnly: true, transactionSubmitted: false });
+          } catch (error) {
+            send(res, 422, { error: "protocol_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Direct-funded protocol liquidation simulation failed", transactionSubmitted: false });
+          }
+          return;
+        }
         if (url.pathname === "/api/v1/simulation/multichain") {
           const network = body.network;
           const target = network === "base"
@@ -187,7 +234,11 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             send(res, 503, { error: "multichain_fork_not_configured", message: "Set BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL for a private Anvil fork, and provide network=base or network=arbitrum." });
             return;
           }
-          if (typeof body.to !== "string" || typeof body.data !== "string" ||
+          if (!config.ETHEREUM_FORK_RPC_URL) {
+          send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
+          return;
+        }
+        if (typeof body.to !== "string" || typeof body.data !== "string" ||
               (body.value !== undefined && typeof body.value !== "string") ||
               (body.from !== undefined && typeof body.from !== "string")) {
             send(res, 400, { error: "invalid_simulation_request", message: "Provide to and data strings, with optional value and from strings." });
