@@ -18,11 +18,11 @@ describe("Morpho Blue accrued borrow debt", () => {
     });
     expect(result.accruedInterestAssets).toBe(32_038n);
     expect(result.accruedTotalBorrowAssets).toBe(1_000_000n + result.accruedInterestAssets);
-    expect(result.borrowerDebtAssetsUp).toBe(1n);
+    expect(result.borrowerDebtAssetsUp).toBe(2n);
   });
   it("uses Morpho virtual assets and virtual shares when converting debt", () => {
     const result = accrueMorphoBorrowDebt({ totalBorrowAssets: 1_000_000n, totalBorrowShares: 3n, borrowShares: 1n, borrowRateWadPerSecond: 0n, elapsedSeconds: 0n });
-    expect(result.borrowerDebtAssetsUp).toBe(2n);
+    expect(result.borrowerDebtAssetsUp).toBe(1n);
   });
   it("returns zero debt for zero borrower shares", () => {
     expect(accrueMorphoBorrowDebt({
