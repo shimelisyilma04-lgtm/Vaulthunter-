@@ -20,7 +20,8 @@
     "aave:index": "tsx src/aave/indexer-cli.ts",
     "audit:summary": "node scripts/audit-summary.mjs",
     "chains:check": "tsx src/chain/check-cli.ts",
-    "verify:protocol-deployments": "tsx src/scripts/verify-protocol-deployments.ts"
+    "verify:protocol-deployments": "tsx src/scripts/verify-protocol-deployments.ts",
+    "aave:l2:smoke": "tsx src/scripts/aave-l2-smoke-check.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
