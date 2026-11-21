@@ -2,6 +2,9 @@ import { Contract, JsonRpcProvider, getAddress, solidityPacked } from "ethers";
 import { UNISWAP_V3_QUOTER_V2_ABI } from "../chain/uniswap-v3-quote.js";
 
 const QUOTER_V2 = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
+const UNISWAP_V3_FACTORY = "0x1F98431c8aD98523631AE4a59f267346ea31F984";
+const FACTORY_ABI = ["function getPool(address tokenA,address tokenB,uint24 fee) view returns (address)"] as const;
+const POOL_ABI = ["function liquidity() view returns (uint128)"] as const;
 const QUOTER_ABI = UNISWAP_V3_QUOTER_V2_ABI;
 
 export interface UniswapV3QuoteInput {
@@ -73,10 +76,12 @@ export async function quoteUniswapV3ExactInput(
 
 export async function quoteUniswapV3BestExactInput(
   rpcUrl: string,
-  input: Omit<UniswapV3QuoteInput, "fee">
+  input: Omit<UniswapV3QuoteInput, "fee">,
+  validationBlock?: number
 ): Promise<{
   chainId: 1;
   blockNumber: number;
+  blockHash: string;
   tokenIn: string;
   tokenOut: string;
   amountIn: string;
@@ -86,6 +91,8 @@ export async function quoteUniswapV3BestExactInput(
   initializedTicksCrossed: number | null;
   candidates: Array<{
     fee: number;
+    poolAddress: string | null;
+    currentLiquidity: string | null;
     amountOut: string | null;
     gasEstimate: string | null;
     initializedTicksCrossed: number | null;
@@ -107,20 +114,32 @@ export async function quoteUniswapV3BestExactInput(
   try {
     const network = await provider.getNetwork();
     if (network.chainId !== 1n) throw new Error("Uniswap V3 quote adapter requires Ethereum mainnet (chain ID 1)");
-    const blockNumber = await provider.getBlockNumber();
+    const blockNumber = validationBlock ?? await provider.getBlockNumber();
+    const pinnedBlock = await provider.getBlock(blockNumber);
+    if (!pinnedBlock) throw new Error("Unable to load pinned quote block");
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, provider);
+    const factory = new Contract(UNISWAP_V3_FACTORY, FACTORY_ABI, provider);
     const fees = [100, 500, 3000, 10000] as const;
     const candidates = await Promise.all(fees.map(async (fee) => {
+      let poolAddress: string | null = null;
+      let currentLiquidity: string | null = null;
       try {
+        poolAddress = getAddress(String(await factory.getFunction("getPool")(tokenIn, tokenOut, fee, { blockTag: blockNumber })));
+        if (poolAddress === "0x0000000000000000000000000000000000000000") {
+          return { fee, poolAddress: null, currentLiquidity: null, amountOut: null, gasEstimate: null,
+            initializedTicksCrossed: null, available: false as const, error: "No Uniswap V3 pool exists for this token pair at this fee tier" };
+        }
+        const pool = new Contract(poolAddress, POOL_ABI, provider);
+        currentLiquidity = BigInt(await pool.getFunction("liquidity")({ blockTag: blockNumber })).toString();
+        if (currentLiquidity === "0") {
+          return { fee, poolAddress, currentLiquidity, amountOut: null, gasEstimate: null,
+            initializedTicksCrossed: null, available: false as const, error: "Pool exists but has zero active in-range liquidity at the pinned block" };
+        }
         const quote = await quoter.getFunction("quoteExactInputSingle").staticCall({
-          tokenIn,
-          tokenOut,
-          fee,
-          amountIn: BigInt(input.amountIn),
-          sqrtPriceLimitX96: 0
+          tokenIn, tokenOut, amountIn: BigInt(input.amountIn), fee, sqrtPriceLimitX96: 0
         }, { blockTag: blockNumber }) as readonly [bigint, bigint, number, bigint];
         return {
-          fee,
+          fee, poolAddress, currentLiquidity,
           amountOut: quote[0].toString(),
           gasEstimate: quote[3].toString(),
           initializedTicksCrossed: Number(quote[2]),
@@ -128,10 +147,8 @@ export async function quoteUniswapV3BestExactInput(
         };
       } catch (error) {
         return {
-          fee,
-          amountOut: null,
-          gasEstimate: null,
-          initializedTicksCrossed: null,
+          fee, poolAddress, currentLiquidity,
+          amountOut: null, gasEstimate: null, initializedTicksCrossed: null,
           available: false as const,
           error: error instanceof Error ? error.message.slice(0, 240) : "Pool unavailable or quote failed"
         };
@@ -144,6 +161,7 @@ export async function quoteUniswapV3BestExactInput(
     return {
       chainId: 1,
       blockNumber,
+      blockHash: pinnedBlock.hash,
       tokenIn,
       tokenOut,
       amountIn: input.amountIn,
