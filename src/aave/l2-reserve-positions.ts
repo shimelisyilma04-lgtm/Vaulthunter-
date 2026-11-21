@@ -40,12 +40,12 @@ function ceilDiv(n: bigint, d: bigint): bigint {
   if (d <= 0n) throw new Error("Division denominator must be positive");
   return n === 0n ? 0n : (n + d - 1n) / d;
 }
-function percentMulFloor(value: bigint, percentage: bigint): bigint {
-  return value * percentage / BPS;
+export function aavePercentMul(value: bigint, percentage: bigint): bigint {
+  return (value * percentage + BPS / 2n) / BPS;
 }
-function percentDivCeil(value: bigint, percentage: bigint): bigint {
+export function aavePercentDiv(value: bigint, percentage: bigint): bigint {
   if (percentage === 0n) throw new Error("Liquidation bonus must be positive");
-  return ceilDiv(value * BPS, percentage);
+  return (value * BPS + percentage / 2n) / percentage;
 }
 export function aaveL2CloseFactorBps(healthFactorWad: bigint, totalDebtBase: bigint, minBaseThreshold: bigint | null): bigint {
   return healthFactorWad > 95n * WAD / 100n &&
@@ -293,16 +293,16 @@ export async function inspectAaveL2ReservePositions(args: {
         }
         const requestedDebt = maxDebtBase * debtUnit / debtPrice;
         const baseCollateral = debtPrice * requestedDebt * collateralUnit / (collateralPrice * debtUnit);
-        const maxCollateral = percentMulFloor(baseCollateral, bonus);
+        const maxCollateral = aavePercentMul(baseCollateral, bonus);
         let seized = maxCollateral;
         let actualDebt = requestedDebt;
         if (maxCollateral > BigInt(collateral.collateralBalance)) {
           seized = BigInt(collateral.collateralBalance);
           const debtValue = collateralPrice * seized * debtUnit / (debtPrice * collateralUnit);
-          actualDebt = percentDivCeil(debtValue, bonus);
+          actualDebt = aavePercentDiv(debtValue, bonus);
         }
         const bonusCollateral = seized - (seized * BPS / bonus);
-        const protocolFee = ceilDiv(bonusCollateral * BigInt(collateral.liquidationProtocolFeeBps), BPS);
+        const protocolFee = aavePercentMul(bonusCollateral, BigInt(collateral.liquidationProtocolFeeBps));
         const netCollateral = seized - protocolFee;
         const debtRemaining = BigInt(debt.totalDebt) - actualDebt;
         const collateralRemaining = BigInt(collateral.collateralBalance) - seized;
