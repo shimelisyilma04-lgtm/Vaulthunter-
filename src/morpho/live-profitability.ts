@@ -84,7 +84,7 @@ export async function estimateMorphoBlueLiveProfitability(args: {
       return {
         ...baseEstimate, network: args.network, marketId: snapshot.marketId,
         borrower: snapshot.borrower, observedBlock: snapshot.observedBlock,
-        quote: null, flashLoanAvailable, positiveAfterAllBudgets: false,
+        quote: null, flashLoanAvailable, estimatedNetProfitBaseCurrency: null, positiveAfterAllBudgets: false,
         warnings: ["No direct Uniswap V3 pool returned a quote. Multi-hop routing is not yet included."]
       };
     }
@@ -119,6 +119,7 @@ export async function estimateMorphoBlueLiveProfitability(args: {
         builderFeeLoanUnits: builderFee.toString(), safetyBufferLoanUnits: safetyBuffer.toString()
       },
       estimatedNetProfitLoanUnits: net.toString(),
+      estimatedNetProfitBaseCurrency: (net * debtPrice / debtUnit).toString(),
       positiveAfterAllBudgets: net > 0n && flashLoanAvailable,
       source: "morpho-accrued-at-pinned-block-plus-aave-flashloan-terms-plus-same-block-uniswap-v3-quote",
       executionEnabled: false,
