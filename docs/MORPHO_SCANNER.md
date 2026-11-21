@@ -32,8 +32,10 @@ The continuous command resumes from the global event checkpoint. It scans a boun
 - `MORPHO_SNAPSHOT_BATCH_SIZE`: borrower positions refreshed per selected market (default 10).
 - `MORPHO_POLL_INTERVAL_MS`: wait after a completed pass (default 30 seconds).
 
-## Important limitations
+## Interest accrual and limitations
 
-The first implementation is Ethereum Mainnet only. It uses the Morpho API for immutable market configuration and reads positions, market accounting and oracle prices from chain. Morpho market borrow assets accrue interest lazily; raw on-chain market totals may not include interest since the last accrual. Therefore this first health-factor result is a screening signal, not an authoritative liquidation quote. Before treating a position as executable, accrue interest with the Morpho SDK or an equivalent exact implementation, then re-read the position, market, and oracle at one pinned block and simulate the liquidation. Never use a stale API or SQLite snapshot to submit a transaction.
+The scanner now obtains `idToMarketParams`, the stored `market` state, the block timestamp, and the oracle price at one pinned Ethereum block. For markets with a nonzero IRM, it calls that IRM's `borrowRateView` using the stored market state at the same block. It then applies Morpho Blue's three-term `wTaylorCompounded` formula, Solidity-compatible floor rounding for market interest, and shares-to-assets rounding up for each borrower's debt. The implementation is in `src/morpho/accrual.ts`; its arithmetic is covered by `tests/morpho-accrual.test.ts`.
+
+This is materially more accurate than using stale `totalBorrowAssets`, but it is still a screening calculation, not a liquidation quote or execution guarantee. Validate the rate-view behavior against each deployed IRM and an official Morpho SDK / `MorphoBalancesLib` reference. The scanner must also re-read the position, market, oracle, and available loan-token liquidity at one pinned block immediately before any future simulation. The current implementation does not yet calculate the exact repay/seize amount, account for every market-specific edge case, obtain executable DEX quotes, or simulate `liquidate`.
 
 The scanner deliberately remains read-only. No private key, wallet, signing, transaction construction, or transaction submission is included.
