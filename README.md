@@ -26,6 +26,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - `npm run verify:protocol-deployments` fingerprints Aave Pool proxy/implementation bytecode and Morpho Blue singleton bytecode on Base and Arbitrum at pinned blocks. See [deployment fingerprints](docs/DEPLOYMENT_FINGERPRINTS.md) and the [independent protocol review](docs/INDEPENDENT_PROTOCOL_REVIEW.md).
 - `npm run aave:l2:smoke` performs read-only reserve-adapter smoke checks against Base and Arbitrum.
 - `forge test -vvv` runs the isolated, test-only callback/rollback architecture harness in `test-solidity/ExecutorArchitecture.t.sol`. It uses mock protocols and tokens; it is not production executor code and must never be deployed.
+- `forge test --match-contract ProtocolForkVerificationTest -vvv` checks live Base/Arbitrum deployments and compares Morpho accrual against deployed core on a local fork. See [fork verification](test-solidity/ProtocolForkVerification.t.sol) and the [production release gates](docs/PRODUCTION_RELEASE_GATES.md).
 - The multichain opportunity screen is still an estimate, not a validated executable profit. Gas units and MEV/builder budgets are caller-supplied, only direct-pool quotes are included in the Morpho screen, and exact fork differential tests with a reviewed executor are outstanding.
 
 ## Dashboard preview
