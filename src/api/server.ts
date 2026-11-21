@@ -234,7 +234,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             send(res, 503, { error: "multichain_fork_not_configured", message: "Set BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL for a private Anvil fork, and provide network=base or network=arbitrum." });
             return;
           }
-          if (!config.ETHEREUM_FORK_RPC_URL) {
+        if (!config.ETHEREUM_FORK_RPC_URL) {
           send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
           return;
         }
@@ -257,6 +257,10 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           return;
         }
         if (url.pathname === "/api/v1/simulation/aave-liquidation") {
+          if (!config.ETHEREUM_FORK_RPC_URL) {
+            send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
+            return;
+          }
           if (typeof body.collateralAsset !== "string" || typeof body.debtAsset !== "string" ||
               typeof body.user !== "string" || typeof body.debtToCover !== "string" ||
               typeof body.receiveAToken !== "boolean" || typeof body.from !== "string") {
