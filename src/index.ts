@@ -4,6 +4,8 @@ import { AaveStore } from "./aave/store-factory.js";
 import { runAaveIndexerPass } from "./aave/indexer.js";
 import { startHttpServer } from "./api/server.js";
 import { inspectConfiguredNetworks } from "./chain/multi-chain.js";
+import { createMorphoStore } from "./morpho/store-factory.js";
+import { runMorphoScanPass } from "./morpho/scanner.js";
 
 const logger = pino({ level: config.LOG_LEVEL });
 const store = new AaveStore(config.VAULTHUNTER_DB_PATH, config.DATABASE_URL);
@@ -68,12 +70,57 @@ async function runIndexerLoop(): Promise<void> {
   }
 }
 
+async function runMorphoIndexerLoop(): Promise<void> {
+  if (!config.MORPHO_INDEXER_ENABLED) {
+    logger.info("Morpho Blue historical indexing is disabled; set MORPHO_INDEXER_ENABLED=true to enable it");
+    return;
+  }
+  if (config.NODE_ENV === "production" && !config.DATABASE_URL) {
+    logger.error("Morpho indexing requires DATABASE_URL in production; refusing ephemeral SQLite storage");
+    return;
+  }
+  if (!config.ETHEREUM_RPC_URL) {
+    logger.warn("ETHEREUM_RPC_URL is missing; Morpho indexing is paused");
+    return;
+  }
+  const morphoStore = createMorphoStore();
+  logger.info({
+    maxMarkets: config.MORPHO_MAX_MARKETS,
+    batchBlocks: config.MORPHO_INDEXER_BATCH_BLOCKS,
+    maxBatchesPerPass: config.MORPHO_INDEXER_MAX_BATCHES_PER_PASS,
+    executionEnabled: false
+  }, "Starting Morpho Blue Ethereum indexer in read-only mode");
+  try {
+    while (!stopping) {
+      try {
+        const result = await runMorphoScanPass(config.ETHEREUM_RPC_URL, morphoStore);
+        logger.info({ ...result, candidates: undefined }, "Morpho Blue indexer pass completed");
+        for (const candidate of result.candidates) {
+          logger.warn({
+            protocol: "morpho-blue", chainId: 1, ...candidate, executionEnabled: false
+          }, "Potential Morpho liquidation candidate — full-position quote is diagnostic only");
+        }
+        if (result.indexerCaughtUp) {
+          await new Promise((resolve) => setTimeout(resolve, config.MORPHO_POLL_INTERVAL_MS));
+        }
+      } catch (error) {
+        logger.error({ error: error instanceof Error ? error.message : String(error) },
+          "Morpho indexer pass failed; retrying after delay");
+        await new Promise((resolve) => setTimeout(resolve, config.MORPHO_POLL_INTERVAL_MS));
+      }
+    }
+  } finally {
+    await morphoStore.close();
+    logger.info("Morpho indexer stopped; no transactions were submitted");
+  }
+}
+
 function shutdown(signal: string): void {
   if (stopping) return;
   stopping = true;
   logger.info({ signal }, "Shutting down VaultHunter");
   server.close(() => {
-    void store.close().finally(() => process.exit(0));
+    void Promise.allSettled([store.close(), ...backgroundLoops]).then(() => process.exit(0));
   });
   setTimeout(() => process.exit(1), 10000).unref();
 }
@@ -81,4 +128,4 @@ function shutdown(signal: string): void {
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 
-void runIndexerLoop();
+const backgroundLoops: Promise<void>[] = [runIndexerLoop(), runMorphoIndexerLoop()];
