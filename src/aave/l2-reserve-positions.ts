@@ -23,6 +23,7 @@ const ORACLE_ABI = [
 ] as const;
 const ERC20_ABI = [
   "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
   "function balanceOf(address) view returns (uint256)"
 ] as const;
 const WAD = 10n ** 18n;
@@ -189,10 +190,11 @@ export async function inspectAaveL2ReservePositions(args: {
       const rows = await Promise.all(batch.map(async (assetRaw, j) => {
         const reserveIndex = i + j;
         const asset = getAddress(assetRaw);
-        const [reserveRaw, priceRaw, decimalsRaw] = await Promise.all([
+        const [reserveRaw, priceRaw, decimalsRaw, symbolRaw] = await Promise.all([
           pool.getFunction("getReserveData").staticCall(asset, { blockTag: observedBlock }),
           oracle.getFunction("getAssetPrice").staticCall(asset, { blockTag: observedBlock }),
-          new Contract(asset, ERC20_ABI, provider).getFunction("decimals").staticCall({ blockTag: observedBlock })
+          new Contract(asset, ERC20_ABI, provider).getFunction("decimals").staticCall({ blockTag: observedBlock }),
+          new Contract(asset, ERC20_ABI, provider).getFunction("symbol").staticCall({ blockTag: observedBlock })
         ]);
         const reserve = (reserveRaw as readonly [readonly [bigint], ...unknown[]]);
         const reserveTuple = reserve[0] as readonly [bigint];
@@ -223,7 +225,7 @@ export async function inspectAaveL2ReservePositions(args: {
         const protocolFee = (config >> 152n) & 0xffffn;
         const flashLoanEnabled = ((config >> 63n) & 1n) === 1n;
         return {
-          asset, symbol: asset, decimals, reserveId, eModeCategory: reserveEModeCategory,
+          asset, symbol: String(symbolRaw), decimals, reserveId, eModeCategory: reserveEModeCategory,
           aToken, stableDebtToken, variableDebtToken,
           collateralBalance: collateral.toString(), stableDebt: stableDebt.toString(),
           variableDebt: variableDebt.toString(), totalDebt: totalDebt.toString(),
@@ -292,8 +294,8 @@ export async function inspectAaveL2ReservePositions(args: {
         const collateralRemainingBase = collateralRemaining * collateralPrice / collateralUnit;
         const debtFullyCleared = actualDebt >= BigInt(debt.totalDebt);
         const collateralFullyCleared = seized + protocolFee >= BigInt(collateral.collateralBalance);
-        const dustSatisfied = minLeftover === null || debtFullyCleared || collateralFullyCleared ||
-          (debtRemainingBase >= minLeftover && collateralRemainingBase >= minLeftover);
+        const dustSatisfied = minLeftover !== null && (debtFullyCleared || collateralFullyCleared ||
+          (debtRemainingBase >= minLeftover && collateralRemainingBase >= minLeftover));
         const dustRule = minLeftover === null
           ? "Pool does not expose MIN_LEFTOVER_BASE; exact dust validation requires fork simulation."
           : debtFullyCleared ? "Selected debt reserve fully repaid."
