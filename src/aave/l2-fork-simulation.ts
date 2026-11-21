@@ -52,7 +52,7 @@ export async function simulateAaveL2DirectLiquidation(
     protocol: "aave-v3" as const,
     network: input.network,
     simulationType: "direct-funded-liquidation-call" as const,
-    liquidation: { collateralAsset, debtAsset, borrower, debtToCover: input.debtToCover, receiveAToken },
+    liquidation: { collateralAsset, debtAsset, borrower, debtToCover: input.debtToCover, receiveAToken: input.receiveAToken },
     warning: "Direct-funded Aave Pool call only. The fork sender must hold and have approved the debt token. This does not test a flash-loan executor, callback, swap, repayment, or atomic end-to-end transaction."
   };
 }
