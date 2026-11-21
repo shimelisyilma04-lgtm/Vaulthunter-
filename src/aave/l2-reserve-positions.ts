@@ -176,11 +176,6 @@ export async function inspectAaveL2ReservePositions(args: {
     } catch {
       // The V3.3 liquidation constants are library internals, not guaranteed Pool getters.
     }
-    if (minLeftover === null && baseCurrencyAddress === ZERO) {
-      // Aave V3.3+ documents MIN_LEFTOVER_BASE as half of 2,000 USD base units.
-      // Keep the 50% close factor unless the Pool exposes its threshold; this is conservative.
-      minLeftover = 1_000n * baseUnit;
-    }
     let eModeData: { liquidationBonusBps: string; priceSource: string } | null = null;
     if (userEModeCategory > 0) {
       try {
@@ -250,7 +245,7 @@ export async function inspectAaveL2ReservePositions(args: {
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
       if (userEModeCategory > 0 && eModeData && eModeData.priceSource !== ZERO &&
-          (!asCollateral || asset.eModeCategory === userEModeCategory)) {
+          (asset.eModeCategory === userEModeCategory)) {
         return asBigInt(await oracle.getFunction("getAssetPrice").staticCall(eModeData.priceSource, { blockTag: observedBlock }), "eMode price");
       }
       return BigInt(asset.priceBase);
@@ -275,9 +270,8 @@ export async function inspectAaveL2ReservePositions(args: {
         const collateralBase = BigInt(collateral.collateralBalance) * collateralPrice / collateralUnit;
         const totalDebtBase = asBigInt(account[1], "total debt base");
         let maxDebtBase = BigInt(debt.totalDebt) * debtPrice / debtUnit;
-        const closeFactorApplies = minBaseThreshold !== null
-          ? collateralBase >= minBaseThreshold && debtBase >= minBaseThreshold && hf > 95n * WAD / 100n
-          : hf > 95n * WAD / 100n;
+        const closeFactorApplies = hf > 95n * WAD / 100n &&
+          (minBaseThreshold === null || totalDebtBase > minBaseThreshold);
         let closeFactorBps = 10_000n;
         if (closeFactorApplies) {
           closeFactorBps = 5_000n;
@@ -345,7 +339,7 @@ export async function inspectAaveL2ReservePositions(args: {
       minLeftoverBase: minLeftover?.toString() ?? null, reserves, pairs,
       warnings: [
         "All Aave account, reserve, token-balance, price, eMode and flash-premium reads use one confirmed block.",
-        "The calculator mirrors reserve-level debt/collateral limits and applies a conservative 1,000-base-unit leftover guard for USD-base markets; exact Pool revision, close-factor version, scaled-token rounding and chain-specific behavior must still pass fork simulation.",
+        "The calculator fails closed when the deployed Pool does not expose the minimum-leftover threshold; close-factor selection uses the account-wide debt threshold and health factor when available. Exact Pool revision and scaled-token rounding must still pass fork simulation.",
         "Flash-loan liquidity is a point-in-time underlying balance and can change before execution.",
         blockPriceSourceWarning,
         "This endpoint does not sign, broadcast, or submit transactions."
