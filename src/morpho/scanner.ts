@@ -1,6 +1,7 @@
 import { Contract, Interface, JsonRpcProvider, getAddress, type Log } from "ethers";
 import { config } from "../config.js";
 import { WAD } from "../domain/liquidation.js";
+import { accrueMorphoBorrowDebt } from "./accrual.js";
 import { MorphoStore, type MorphoMarket } from "./store.js";
 
 export const MORPHO_BLUE_ETHEREUM = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
@@ -12,9 +13,11 @@ const MORPHO_ABI = [
   "event WithdrawCollateral(bytes32 indexed id,address caller,address indexed onBehalf,address indexed receiver,uint256 assets)",
   "event Liquidate(bytes32 indexed id,address indexed caller,address indexed borrower,uint256 repaidAssets,uint256 repaidShares,uint256 seizedAssets,uint256 badDebtAssets,uint256 badDebtShares)",
   "function position(bytes32 id,address user) view returns (uint256 supplyShares,uint128 borrowShares,uint128 collateral)",
-  "function market(bytes32 id) view returns (uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee)"
+  "function market(bytes32 id) view returns (uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee)",
+  "function idToMarketParams(bytes32 id) view returns (address loanToken,address collateralToken,address oracle,address irm,uint256 lltv)"
 ] as const;
 const morphoInterface = new Interface(MORPHO_ABI);
+const IRM_ABI = ["function borrowRateView((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee) market) view returns (uint256)"];
 const positionTopics = ["Borrow","Repay","SupplyCollateral","WithdrawCollateral","Liquidate"]
   .map((name) => morphoInterface.getEvent(name)!.topicHash);
 
@@ -72,11 +75,6 @@ function decodeBorrowerEvents(logs: Log[]): BorrowerEvent[] {
   return [...entries.values()];
 }
 
-function ceilDiv(a: bigint, b: bigint): bigint {
-  if (b <= 0n) throw new Error("Expected positive denominator");
-  return (a + b - 1n) / b;
-}
-
 export interface MorphoScanResult {
   chainId: 1; latestBlock: number; marketsDiscovered: number;
   indexedFromBlock: number; indexedThroughBlock: number;
@@ -87,6 +85,7 @@ export interface MorphoScanResult {
     marketId: string; borrower: string; observedBlock: number;
     debtAssets: string; collateralAssets: string; oraclePrice: string;
     lltvWad: string; healthFactorWad: string;
+    accruedInterestAssets: string; borrowRateWadPerSecond: string;
   }>;
   executionEnabled: false;
 }
@@ -150,17 +149,39 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
         const borrowers = store.listBorrowers(1, market.marketId, config.MORPHO_SNAPSHOT_BATCH_SIZE);
         if (borrowers.length === 0) continue;
         try {
-          const [state, priceRaw] = await Promise.all([
+          const [state, priceRaw, params, observedBlock] = await Promise.all([
             morpho.getFunction("market")(market.marketId, { blockTag: head }) as Promise<readonly [bigint,bigint,bigint,bigint,bigint,bigint]>,
-            new Contract(market.oracleAddress, ORACLE_ABI, provider).getFunction("price")({ blockTag: head }) as Promise<bigint>
+            new Contract(market.oracleAddress, ORACLE_ABI, provider).getFunction("price")({ blockTag: head }) as Promise<bigint>,
+            morpho.getFunction("idToMarketParams")(market.marketId, { blockTag: head }) as Promise<readonly [string,string,string,string,bigint]>,
+            provider.getBlock(head)
           ]);
-          const totalBorrowAssets = BigInt(state[2]), totalBorrowShares = BigInt(state[3]), price = BigInt(priceRaw);
-          if (totalBorrowShares === 0n || price === 0n) continue;
+          if (!observedBlock) throw new Error("Unable to resolve pinned block timestamp");
+          const price = BigInt(priceRaw);
+          if (price === 0n) continue;
+          const marketState = {
+            totalSupplyAssets: state[0], totalSupplyShares: state[1],
+            totalBorrowAssets: state[2], totalBorrowShares: state[3],
+            lastUpdate: state[4], fee: state[5]
+          };
+          const elapsed = BigInt(observedBlock.timestamp) - BigInt(state[4]);
+          if (elapsed < 0n) throw new Error("Market lastUpdate is later than pinned block timestamp");
+          const rate = market.irmAddress.toLowerCase() === "0x0000000000000000000000000000000000000000"
+            ? 0n
+            : BigInt(await new Contract(market.irmAddress, IRM_ABI, provider).getFunction("borrowRateView")({
+                loanToken: params[0], collateralToken: params[1], oracle: params[2], irm: params[3], lltv: params[4]
+              }, marketState, { blockTag: head }));
+          const totalBorrowShares = BigInt(state[3]);
+          if (totalBorrowShares === 0n) continue;
           for (const borrower of borrowers) {
             try {
               const position = await morpho.getFunction("position")(market.marketId, borrower.address, { blockTag: head }) as readonly [bigint,bigint,bigint];
               const borrowShares = BigInt(position[1]), collateralAssets = BigInt(position[2]);
-              const debtAssets = borrowShares === 0n ? 0n : ceilDiv(borrowShares * totalBorrowAssets, totalBorrowShares);
+              const debt = accrueMorphoBorrowDebt({
+                totalBorrowAssets: BigInt(state[2]), totalBorrowShares,
+                borrowShares, borrowRateWadPerSecond: rate,
+                elapsedSeconds: BigInt(observedBlock.timestamp) - BigInt(state[4])
+              });
+              const debtAssets = debt.borrowerDebtAssetsUp;
               const collateralValue = collateralAssets * price / (10n ** 36n);
               const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(market.lltvWad) / debtAssets;
               store.saveSnapshot({
@@ -173,7 +194,9 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
               if (debtAssets > 0n && healthFactor < WAD) candidates.push({
                 marketId: market.marketId, borrower: borrower.address, observedBlock: head,
                 debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
-                oraclePrice: price.toString(), lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString()
+                oraclePrice: price.toString(), lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString(),
+                accruedInterestAssets: debt.accruedInterestAssets.toString(),
+                borrowRateWadPerSecond: rate.toString()
               });
             } catch { readFailures += 1; }
           }
