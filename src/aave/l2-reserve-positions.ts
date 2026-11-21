@@ -292,11 +292,11 @@ export async function inspectAaveL2ReservePositions(args: {
         const protocolFee = ceilDiv(bonusCollateral * BigInt(collateral.liquidationProtocolFeeBps), BPS);
         const netCollateral = seized - protocolFee;
         const debtRemaining = BigInt(debt.totalDebt) - actualDebt;
-        const collateralRemaining = BigInt(collateral.collateralBalance) - seized - protocolFee;
+        const collateralRemaining = BigInt(collateral.collateralBalance) - seized;
         const debtRemainingBase = ceilDiv(debtRemaining * debtPrice, debtUnit);
         const collateralRemainingBase = collateralRemaining * collateralPrice / collateralUnit;
         const debtFullyCleared = actualDebt >= BigInt(debt.totalDebt);
-        const collateralFullyCleared = seized + protocolFee >= BigInt(collateral.collateralBalance);
+        const collateralFullyCleared = seized >= BigInt(collateral.collateralBalance);
         const dustSatisfied = minLeftover !== null && (debtFullyCleared || collateralFullyCleared ||
           (debtRemainingBase >= minLeftover && collateralRemainingBase >= minLeftover));
         const dustRule = minLeftover === null
