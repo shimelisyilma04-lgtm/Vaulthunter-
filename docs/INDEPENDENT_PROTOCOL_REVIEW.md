@@ -88,7 +88,13 @@ Required invariants:
 
 The harness validates architecture and callback assumptions only. It is not the production executor and cannot substitute for protocol fork tests, external review, formal verification, or a professional smart-contract audit.
 
-## 5. Gate before any real execution
+## 5. Automated deployment fingerprint
+
+`npm run verify:protocol-deployments` checks the official Aave PoolAddressesProvider → Pool proxy resolution, the EIP-1967 implementation slot, non-empty proxy/implementation bytecode and runtime code hashes at a pinned block on Base and Arbitrum. It also fingerprints the Morpho Blue singleton bytecode on both chains and detects the current bitmap versus legacy eMode ABI profile. GitHub CI runs this with public RPC fallbacks or the repository's optional RPC secrets.
+
+A successful fingerprint proves which addresses and bytecode were observed at that block; it does **not** prove that the bytecode matches a verified source build or that the off-chain liquidation arithmetic is equivalent. Record the emitted implementation hashes, compare them to verified explorer/source builds, and run the fork differential suite before treating the corresponding protocol profile as verified.
+
+## 6. Gate before any real execution
 
 Do not enable signing, broadcasting, or an execution switch until all of the following are complete:
 1. Base and Arbitrum deployed Pool implementation addresses and bytecode hashes are recorded at pinned blocks.
