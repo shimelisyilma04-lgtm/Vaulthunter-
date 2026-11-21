@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   aaveL2CloseFactorBps,
   aaveL2DustSatisfied,
-  aaveL2UsesEModePrice,
+  aaveL2UsesLegacyEModePrice,
+  aaveL2UsesEModeCollateralBitmap,
+  aavePercentDivCeil,
   aavePercentDivFloor,
   aavePercentMulCeil,
   aavePercentMulFloor,
@@ -27,13 +29,15 @@ describe("Aave V3 L2 liquidation rules", () => {
     expect(aaveL2CloseFactorBps(96n * WAD / 100n, 1_999n, 2_000n, 2_000n)).toBe(10_000n);
   });
 
-  it("uses eMode price for all debt reserves but only matching-category collateral reserves", () => {
+  it("matches Aave Origin eMode collateral bitmap and legacy price-source behavior", () => {
+    expect(aaveL2UsesEModeCollateralBitmap(1, 2, 1n << 2n)).toBe(true);
+    expect(aaveL2UsesEModeCollateralBitmap(1, 3, 1n << 2n)).toBe(false);
+    expect(aaveL2UsesEModeCollateralBitmap(0, 2, 1n << 2n)).toBe(false);
+    expect(aaveL2UsesEModeCollateralBitmap(1, 128, 1n << 2n)).toBe(false);
     const source = "0x0000000000000000000000000000000000000001";
-    expect(aaveL2UsesEModePrice(1, 1, source, true)).toBe(true);
-    expect(aaveL2UsesEModePrice(1, 2, source, true)).toBe(false);
-    expect(aaveL2UsesEModePrice(1, 2, source, false)).toBe(true);
-    expect(aaveL2UsesEModePrice(0, 1, source, false)).toBe(false);
-    expect(aaveL2UsesEModePrice(1, 1, "0x0000000000000000000000000000000000000000", true)).toBe(false);
+    expect(aaveL2UsesLegacyEModePrice(1, 1, source, true)).toBe(true);
+    expect(aaveL2UsesLegacyEModePrice(1, 2, source, true)).toBe(false);
+    expect(aaveL2UsesLegacyEModePrice(1, 2, source, false)).toBe(true);
   });
 
   it("matches Aave explicit floor, half-up and ceil percentage rounding", () => {
@@ -41,6 +45,7 @@ describe("Aave V3 L2 liquidation rules", () => {
     expect(aavePercentMulFloor(1n, 5_000n)).toBe(0n);
     expect(aavePercentMulCeil(1n, 1n)).toBe(1n);
     expect(aavePercentDivFloor(1n, 20_000n)).toBe(0n);
+    expect(aavePercentDivCeil(1n, 20_000n)).toBe(1n);
     expect(() => aavePercentDivFloor(1n, 0n)).toThrow();
   });
 
