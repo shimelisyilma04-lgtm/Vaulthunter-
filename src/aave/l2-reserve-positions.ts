@@ -374,6 +374,7 @@ export async function estimateAaveL2PairNetProfit(input: AaveL2PairProfitInput):
   builderFeeDebtTokenUnits: string;
   safetyBufferDebtTokenUnits: string;
   estimatedNetProfitDebtTokenUnits: string | null;
+  estimatedNetProfitBaseCurrency: string | null;
   positiveAfterAllBudgets: boolean;
   flashLoanAvailable: boolean;
   source: string;
@@ -432,7 +433,7 @@ export async function estimateAaveL2PairNetProfit(input: AaveL2PairProfitInput):
         flashLoanFeeDebtTokenUnits: flashFee.toString(),
         slippageHaircutDebtTokenUnits: "0", mevBudgetDebtTokenUnits: mevBudget.toString(),
         builderFeeDebtTokenUnits: builderFee.toString(), safetyBufferDebtTokenUnits: "0",
-        estimatedNetProfitDebtTokenUnits: null, positiveAfterAllBudgets: false,
+        estimatedNetProfitDebtTokenUnits: null, estimatedNetProfitBaseCurrency: null, positiveAfterAllBudgets: false,
         flashLoanAvailable: input.pair.flashLoanAvailable, source: "uniswap-v3-quoter-v2",
         warnings: ["No direct Uniswap V3 pool returned a quote for this pair. Multi-hop routing is not yet included."]
       };
@@ -454,6 +455,7 @@ export async function estimateAaveL2PairNetProfit(input: AaveL2PairProfitInput):
       mevBudgetDebtTokenUnits: mevBudget.toString(), builderFeeDebtTokenUnits: builderFee.toString(),
       safetyBufferDebtTokenUnits: safetyBuffer.toString(),
       estimatedNetProfitDebtTokenUnits: net.toString(),
+      estimatedNetProfitBaseCurrency: (net * debtPrice / debtUnit).toString(),
       positiveAfterAllBudgets: net > 0n && input.pair.dustRuleSatisfied && input.pair.flashLoanAvailable,
       flashLoanAvailable: input.pair.flashLoanAvailable,
       source: "same-block-uniswap-quote-plus-live-aave-flashloan-premium-and-rpc-gas-price",
