@@ -8,18 +8,25 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Bounded recent-event scanner for quick checks (configurable 1–10,000 block window; recent Borrow-event discovery only).
 - Read-only HTTP API and live dashboard for service health, indexer status, borrowers, events, scans, automatic candidate rechecks, and liquidation estimates.
 - Conservative Aave V3 liquidation profitability screening calculator with account-level close-factor cap, collateral cap, reserve protocol fee, $1,000 partial-liquidation dust checks, flash-loan, swap, slippage, gas, and safety-buffer inputs.
-- Pure TypeScript Morpho Blue liquidation-math estimator mirroring core LIF and integer rounding for a caller-selected repayment share amount; intentionally not connected to live opportunity ranking until accrued market totals can be simulated and pinned.
+- Morpho Blue position snapshots accrue market borrow assets from the market IRM's `borrowRateView` at the observed block timestamp using Morpho's three-term Taylor compounding and virtual-share conversions; accrued debt feeds the live opportunity screen.
 - SQLite-backed incremental Aave V3 historical Borrow-event indexer.
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
 - Current health-factor snapshots and a ranked read-only risk feed for indexed borrowers. Snapshot refresh batches rotate through the full known-borrower set instead of repeatedly refreshing only the first page.
 - Confirmed-block Aave Protocol Data Provider and Aave Oracle enrichment for reserve balances, oracle prices, reserve eMode-category membership, liquidation protocol fee, category parameters, and collateral/debt screening pairs. The category liquidation bonus is applied when the selected collateral reserve matches the user category and no category price-source override exists; custom eMode price feeds remain explicitly unsupported until safely normalized.
 - Automatic `/api/v1/opportunities` rechecks for previously flagged borrowers, with bounded concurrency, short caching, and per-wallet confirmed-block state reads.
 - Optional Aave-maintained Ethereum V3 subgraph discovery adapter (requires a The Graph API key; bounded recent history, not exhaustive).
-- Read-only Base and Arbitrum Aave V3/Morpho Blue recent-event discovery, followed by same-block live borrower/market position refresh.
+- Read-only Base and Arbitrum Aave V3/Morpho Blue recent-event discovery, followed by same-block live borrower/market position refresh and ranked net-profit estimates.
 - Read-only Uniswap V3 QuoterV2 single-pool and same-block multi-hop path quote screening across Ethereum, Base and Arbitrum. For a supplied 1–3 hop token sequence, up to 64 standard fee-tier combinations are checked; best raw output and estimated gas are screening data only.
 - Integer-only execution-cost budget using max EIP-1559 gas exposure, native-asset USD price, flash-loan fee, swap fee, slippage, builder fee, and safety buffer; values are rounded conservatively in USD cents.
 - Optional isolated Ethereum, Base and Arbitrum Anvil fork simulator: token-protected `eth_call` plus `eth_estimateGas` against a verified chain-matched fork node. It requires complete calldata from a separately audited executor; VaultHunter does not build, sign, or submit liquidation transactions.
 - No wallet, private key, transaction signing, or transaction submission.
+
+## Independent protocol verification and executor test boundary
+
+- `npm run verify:protocol-deployments` fingerprints Aave Pool proxy/implementation bytecode and Morpho Blue singleton bytecode on Base and Arbitrum at pinned blocks. See [deployment fingerprints](docs/DEPLOYMENT_FINGERPRINTS.md) and the [independent protocol review](docs/INDEPENDENT_PROTOCOL_REVIEW.md).
+- `npm run aave:l2:smoke` performs read-only reserve-adapter smoke checks against Base and Arbitrum.
+- `forge test -vvv` runs the isolated, test-only callback/rollback architecture harness in `test-solidity/ExecutorArchitecture.t.sol`. It uses mock protocols and tokens; it is not production executor code and must never be deployed.
+- The multichain opportunity screen is still an estimate, not a validated executable profit. Gas units and MEV/builder budgets are caller-supplied, only direct-pool quotes are included in the Morpho screen, and exact fork differential tests with a reviewed executor are outstanding.
 
 ## Dashboard preview
 
