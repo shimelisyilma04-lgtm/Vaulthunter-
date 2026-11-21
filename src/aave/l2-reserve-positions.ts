@@ -292,8 +292,8 @@ export async function inspectAaveL2ReservePositions(args: {
       }
     }
     const reserves: AaveL2ReservePosition[] = [];
-    for (let i = 0; i < reserveAddresses.length; i += 4) {
-      const batch = reserveAddresses.slice(i, i + 4);
+    for (let i = 0; i < reserveAddresses.length; i += 1) {
+      const batch = reserveAddresses.slice(i, i + 1);
       const rows = await Promise.all(batch.map(async (assetRaw, j) => {
         const reserveIndex = i + j;
         const asset = getAddress(assetRaw);
@@ -344,6 +344,7 @@ export async function inspectAaveL2ReservePositions(args: {
         } satisfies AaveL2ReservePosition;
       }));
       reserves.push(...rows.filter((row): row is AaveL2ReservePosition => row !== null));
+      if (i + 1 < reserveAddresses.length) await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
