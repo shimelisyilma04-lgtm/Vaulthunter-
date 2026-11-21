@@ -1,6 +1,7 @@
 import { Contract, JsonRpcProvider, getAddress } from "ethers";
 import { AAVE_V3_MARKETS, type AaveL2Network } from "./l2-readonly.js";
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
+import { calculateNetProfit } from "../domain/net-profit.js";
 
 const PROVIDER_ABI = [
   "function getPool() view returns (address)",
@@ -451,13 +452,18 @@ export async function estimateAaveL2PairNetProfit(input: AaveL2PairProfitInput):
       };
     }
     const quotedOut = uint(quote.amountOut, "quote amount out");
-    const haircutOut = quotedOut * (BPS - slippageBps) / BPS;
-    const slippageHaircut = quotedOut - haircutOut;
     const debtToCover = uint(input.pair.actualDebtToCover, "actualDebtToCover");
-    const grossAfterRepayment = haircutOut > debtToCover ? haircutOut - debtToCover : 0n;
+    const haircutProceeds = quotedOut * (BPS - slippageBps) / BPS;
+    const grossAfterRepayment = haircutProceeds > debtToCover ? haircutProceeds - debtToCover : 0n;
     const safetyBuffer = ceil(grossAfterRepayment * safetyBps, BPS);
-    const net = haircutOut - debtToCover - flashFee - gasCostDebtUnits -
-      mevBudget - builderFee - safetyBuffer;
+    const netResult = calculateNetProfit({
+      swapProceeds: quotedOut.toString(), repayment: debtToCover.toString(),
+      flashLoanFee: flashFee.toString(), gasCost: gasCostDebtUnits.toString(),
+      mevBudget: mevBudget.toString(), builderFee: builderFee.toString(),
+      safetyBuffer: safetyBuffer.toString(), slippageBps: Number(slippageBps)
+    });
+    const net = BigInt(netResult.netProfit);
+    const slippageHaircut = BigInt(netResult.slippageHaircut);
     return {
       network: input.snapshot.network, observedBlock: input.snapshot.observedBlock,
       collateralToDebtQuote: quote.amountOut, quoteFeeTier: quote.selectedFee,
