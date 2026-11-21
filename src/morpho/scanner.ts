@@ -183,21 +183,28 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
           await store.upsertMarket(market);
         } catch { readFailures += 1; }
       }
-      // Refresh discovered borrowers during the historical backfill; waiting for the
-      // full chain scan would leave every position snapshot empty for hours or days.
+      // Rotate through every borrower market so a large discovery set cannot
+      // permanently starve markets after the first page of IDs.
       const refreshMarkets = [...marketsById.values()];
+      const borrowerMarkets = [...borrowerMarketIds]
+        .map((marketId) => marketsById.get(marketId))
+        .filter((market): market is MorphoMarket => Boolean(market))
+        .sort((a, b) => a.marketId.localeCompare(b.marketId));
       const offset = (await store.getSnapshotMarketOffset(1)) % refreshMarkets.length;
       const count = Math.min(config.MORPHO_MARKETS_TO_REFRESH_PER_PASS, refreshMarkets.length);
       const selectedById = new Map<string, MorphoMarket>();
-      for (const marketId of borrowerMarketIds) {
-        const market = marketsById.get(marketId);
-        if (market) selectedById.set(marketId, market);
+      if (borrowerMarkets.length > 0) {
+        const borrowerOffset = offset % borrowerMarkets.length;
+        for (let i = 0; i < Math.min(count, borrowerMarkets.length); i += 1) {
+          const market = borrowerMarkets[(borrowerOffset + i) % borrowerMarkets.length]!;
+          selectedById.set(market.marketId, market);
+        }
       }
       for (let i = 0; i < refreshMarkets.length && selectedById.size < count; i += 1) {
         const market = refreshMarkets[(offset + i) % refreshMarkets.length]!;
         selectedById.set(market.marketId, market);
       }
-      const selected = [...selectedById.values()].slice(0, count);
+      const selected = [...selectedById.values()];
       const morpho = new Contract(MORPHO_BLUE_ETHEREUM, MORPHO_ABI, provider);
       for (const market of selected) {
         const borrowers = await store.listBorrowers(1, market.marketId, config.MORPHO_SNAPSHOT_BATCH_SIZE);
@@ -307,7 +314,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
 
     candidates.sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
     return {
-      chainId: 1, latestBlock: head, marketsDiscovered: markets.length,
+      chainId: 1, latestBlock: head, marketsDiscovered: marketsById.size,
       indexedFromBlock: startBlock, indexedThroughBlock, marketBatchesIndexed,
       borrowersDiscovered, indexerCaughtUp, marketsRefreshed, positionsChecked,
       readFailures, candidates, executionEnabled: false
