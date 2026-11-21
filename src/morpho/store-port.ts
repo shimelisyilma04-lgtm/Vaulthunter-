@@ -6,6 +6,8 @@ export interface MorphoMonitorStats {
   marketCount: number;
   borrowerCount: number;
   candidateCount: number;
+  refreshedLast2Minutes: number;
+  latestSnapshotAt: string | null;
   latestSnapshotBlock: number | null;
   checkpoint: MorphoCheckpoint | null;
 }
