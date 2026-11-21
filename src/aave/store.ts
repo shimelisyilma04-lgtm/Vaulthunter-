@@ -37,6 +37,15 @@ export interface BorrowerSnapshot {
   liquidationEligible: boolean;
 }
 
+export interface StoredLiquidationCandidate {
+  address: string;
+  observedBlock: number;
+  totalCollateralBase: string;
+  totalDebtBase: string;
+  healthFactorWad: string;
+  snapshotUpdatedAt: string;
+}
+
 export class AaveStore {
   private readonly db: Database.Database;
 
@@ -202,6 +211,28 @@ export class AaveStore {
       snapshot.healthFactorWad, snapshot.liquidationEligible ? 1 : 0,
       snapshot.chainId, snapshot.poolAddress, snapshot.address
     );
+  }
+
+  listCandidates(chainId: number, poolAddress: string, limit = 100): StoredLiquidationCandidate[] {
+    const rows = this.db.prepare(`
+      SELECT address,
+        observed_block AS observedBlock,
+        total_collateral_base AS totalCollateralBase,
+        total_debt_base AS totalDebtBase,
+        health_factor_wad AS healthFactorWad,
+        snapshot_updated_at AS snapshotUpdatedAt
+      FROM aave_borrowers
+      WHERE chain_id = ? AND pool_address = ?
+        AND liquidation_eligible = 1
+        AND CAST(total_debt_base AS REAL) > 0
+        AND observed_block IS NOT NULL
+      LIMIT ?
+    `).all(chainId, poolAddress, limit) as StoredLiquidationCandidate[];
+    return rows.sort((a, b) => {
+      const left = BigInt(a.healthFactorWad);
+      const right = BigInt(b.healthFactorWad);
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
   }
 
   getStats(chainId: number, poolAddress: string): {
