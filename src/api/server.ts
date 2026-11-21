@@ -264,7 +264,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             return;
           }
           try {
-            const result = await simulateAaveLiquidationCall(config.ETHEREUM_FORK_RPC_URL, {
+            const result = await simulateAaveLiquidationCall(config.ETHEREUM_FORK_RPC_URL!, {
               collateralAsset: body.collateralAsset,
               debtAsset: body.debtAsset,
               user: body.user,
@@ -289,7 +289,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           return;
         }
         try {
-          const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL, {
+          const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL!, {
             to: body.to, data: body.data,
             ...(typeof body.value === "string" ? { value: body.value } : {}),
             ...(typeof body.from === "string" ? { from: body.from } : {})
