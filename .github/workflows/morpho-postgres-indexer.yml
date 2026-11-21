@@ -29,27 +29,34 @@ jobs:
       MORPHO_MARKETS_TO_REFRESH_PER_PASS: "25"
     steps:
       - name: Check worker secrets are configured
+        id: secrets
         shell: bash
         run: |
           if [[ -z "$DATABASE_URL" || -z "$ETHEREUM_RPC_URL" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Skipped: add MORPHO_DATABASE_URL and ETHEREUM_RPC_URL repository Actions secrets to enable the external indexer." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Required credentials are present; values are never printed."
           fi
-          echo "Required credentials are present; values are never printed."
 
       - name: Check out the live PostgreSQL-backed service branch
+        if: steps.secrets.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           ref: feat/read-only-api-live-dashboard
 
       - name: Set up Node.js
+        if: steps.secrets.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: npm
 
       - name: Install dependencies
+        if: steps.secrets.outputs.enabled == 'true'
         run: npm ci
 
       - name: Run one bounded Morpho indexing pass
+        if: steps.secrets.outputs.enabled == 'true'
         run: npm run morpho:index:once
