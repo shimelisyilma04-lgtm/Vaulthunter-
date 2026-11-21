@@ -97,6 +97,13 @@ export class MorphoStore implements MorphoStorePort {
     });
     tx();
   }
+  saveDiscoveredBorrowers(chainId: number, entries: Array<{marketId:string;address:string}>): void {
+    const insert = this.db.prepare("INSERT OR IGNORE INTO morpho_borrowers(chain_id,market_id,address) VALUES(?,?,?)");
+    const tx = this.db.transaction(() => {
+      for (const entry of entries) insert.run(chainId, entry.marketId.toLowerCase(), entry.address.toLowerCase());
+    });
+    tx();
+  }
   getSnapshotMarketOffset(chainId: number): number {
     const row=this.db.prepare("SELECT snapshot_market_offset AS cursorValue FROM morpho_scan_state WHERE chain_id=?").get(chainId) as {cursorValue:number}|undefined;
     return row?.cursorValue ?? 0;
