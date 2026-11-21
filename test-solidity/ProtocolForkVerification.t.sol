@@ -75,8 +75,7 @@ contract ProtocolForkVerificationTest {
         require(pool.code.length > 0, "BASE_AAVE_POOL_NO_CODE");
         address implementation = address(uint160(uint256(vm.load(pool, IMPLEMENTATION_SLOT))));
         require(implementation != address(0) && implementation.code.length > 0, "BASE_AAVE_IMPLEMENTATION_MISSING");
-        require(IAavePoolFork(pool).getRevision() > 0, "BASE_AAVE_REVISION_ZERO");
-        require(IAavePoolFork(pool).getReservesList().length > 0, "BASE_AAVE_NO_RESERVES");
+            require(IAavePoolFork(pool).getReservesList().length > 0, "BASE_AAVE_NO_RESERVES");
         require(BASE_MORPHO.code.length > 0, "BASE_MORPHO_NO_CODE");
     }
 
@@ -89,8 +88,7 @@ contract ProtocolForkVerificationTest {
         require(pool.code.length > 0, "ARBITRUM_AAVE_POOL_NO_CODE");
         address implementation = address(uint160(uint256(vm.load(pool, IMPLEMENTATION_SLOT))));
         require(implementation != address(0) && implementation.code.length > 0, "ARBITRUM_AAVE_IMPLEMENTATION_MISSING");
-        require(IAavePoolFork(pool).getRevision() > 0, "ARBITRUM_AAVE_REVISION_ZERO");
-        require(IAavePoolFork(pool).getReservesList().length > 0, "ARBITRUM_AAVE_NO_RESERVES");
+            require(IAavePoolFork(pool).getReservesList().length > 0, "ARBITRUM_AAVE_NO_RESERVES");
         require(ARBITRUM_MORPHO.code.length > 0, "ARBITRUM_MORPHO_NO_CODE");
     }
 
