@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { morphoTaylorCompounded, morphoToAssetsDown, morphoToAssetsUp } from "../src/morpho/blue.js";
+import { morphoAccrueTotalBorrowAssets, morphoTaylorCompounded, morphoToAssetsDown, morphoToAssetsUp } from "../src/morpho/blue.js";
 
 const WAD = 10n ** 18n;
 
@@ -18,6 +18,18 @@ describe("Morpho Blue Taylor-compounded interest", () => {
     const expected = x + secondTerm + thirdTerm;
     expect(morphoTaylorCompounded(rate, elapsed)).toBe(expected);
     expect(morphoTaylorCompounded(rate, elapsed)).toBeGreaterThan(x);
+  });
+
+  it("accrues total borrow assets using the core three-term rate at the pinned elapsed time", () => {
+    const total = 1_000_000n;
+    const rate = WAD / 100_000n;
+    const elapsed = 3_600n;
+    const compounded = morphoTaylorCompounded(rate, elapsed);
+    expect(morphoAccrueTotalBorrowAssets(total, rate, elapsed))
+      .toBe(total + total * compounded / WAD);
+    expect(morphoAccrueTotalBorrowAssets(total, 0n, elapsed)).toBe(total);
+    expect(morphoAccrueTotalBorrowAssets(total, rate, 0n)).toBe(total);
+    expect(() => morphoAccrueTotalBorrowAssets(total, -1n, elapsed)).toThrow();
   });
 
   it("uses Morpho core virtual assets and virtual shares for share conversion", () => {
