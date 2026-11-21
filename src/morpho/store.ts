@@ -114,8 +114,7 @@ export class MorphoStore {
         lltv_wad AS lltvWad,health_factor_wad AS healthFactorWad,
         snapshot_updated_at AS snapshotUpdatedAt
       FROM morpho_borrowers
-      WHERE chain_id=? AND market_id=? AND CAST(debt_assets AS REAL)>0
-        AND CAST(health_factor_wad AS REAL)<1000000000000000000
+      WHERE chain_id=? AND market_id=? AND debt_assets IS NOT NULL AND health_factor_wad IS NOT NULL
       LIMIT ?
     `).all(chainId,marketId,limit) as MorphoCandidate[];
     return rows.filter((r)=>BigInt(r.debtAssets)>0n && BigInt(r.healthFactorWad)<10n**18n)\n      .sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
