@@ -18,6 +18,7 @@ import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
 import { inspectAaveL2ReservePositions, estimateAaveL2PairNetProfit } from "../aave/l2-reserve-positions.js";
 import { inspectMorphoBluePosition } from "../morpho/blue.js";
+import { estimateMorphoBlueLiveProfitability } from "../morpho/live-profitability.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -304,7 +305,10 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
         const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
         try {
-          const discovery = await discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks });
+          const [discovery, morphoDiscovery] = await Promise.all([
+            discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
+            discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
+          ]);
           const rows: Array<Record<string, unknown>> = [];
           for (let i = 0; i < discovery.borrowers.length && i < 40; i += 4) {
             const batch = discovery.borrowers.slice(i, i + 4);
@@ -353,23 +357,50 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
               }
             }
           }
-          const ranked = rows.filter((row) => typeof row.estimatedNetProfitDebtTokenUnits === "string")
+          for (let i = 0; i < morphoDiscovery.positions.length && i < 40; i += 4) {
+            const batch = morphoDiscovery.positions.slice(i, i + 4);
+            const snapshots = await Promise.all(batch.map(async ({ marketId, borrower }) => {
+              try {
+                return await inspectMorphoBluePosition({ network, rpcUrl, marketId, borrower });
+              } catch (error) {
+                return { marketId, borrower, error: error instanceof Error ? error.message : "Morpho snapshot failed" };
+              }
+            }));
+            for (const snapshot of snapshots) {
+              if (!("accruedTotalBorrowAssets" in snapshot)) {
+                rows.push({ protocol: "morpho-blue", ...snapshot } as Record<string, unknown>);
+                continue;
+              }
+              try {
+                const estimate = await estimateMorphoBlueLiveProfitability({
+                  snapshot: snapshot as import("../morpho/blue.js").MorphoPositionSnapshot,
+                  network, rpcUrl, gasUnits: gasUnitsRaw, slippageBps, mevBudgetBps,
+                  builderFeeBps, safetyBufferBps
+                });
+                rows.push(estimate as Record<string, unknown>);
+              } catch (error) {
+                rows.push({ protocol: "morpho-blue", marketId: snapshot.marketId, borrower: snapshot.borrower,
+                  observedBlock: snapshot.observedBlock, error: error instanceof Error ? error.message : "Morpho profitability quote failed" });
+              }
+            }
+          }
+          const ranked = rows.filter((row) => typeof row.estimatedNetProfitBaseCurrency === "string")
             .sort((a, b) => {
-              const av = BigInt(String(a.estimatedNetProfitDebtTokenUnits));
-              const bv = BigInt(String(b.estimatedNetProfitDebtTokenUnits));
+              const av = BigInt(String(a.estimatedNetProfitBaseCurrency));
+              const bv = BigInt(String(b.estimatedNetProfitBaseCurrency));
               return av === bv ? 0 : av > bv ? -1 : 1;
             });
           send(res, 200, {
             network,
-            source: "bounded-aave-discovery-plus-pinned-reserve-data-and-same-block-uniswap-quotes",
-            discovery: { borrowersFound: discovery.borrowers.length, completeness: discovery.completeness, fromBlock: discovery.fromBlock, toBlock: discovery.toBlock },
+            source: "bounded-aave-and-morpho-discovery-plus-pinned-protocol-data-and-same-block-uniswap-quotes",
+            discovery: { aaveBorrowersFound: discovery.borrowers.length, morphoPositionsFound: morphoDiscovery.positions.length, completeness: discovery.completeness, fromBlock: discovery.fromBlock, toBlock: discovery.toBlock },
             scannedAccounts: Math.min(discovery.borrowers.length, 40),
             ranked,
             unrankedOrFailed: rows.filter((row) => typeof row.estimatedNetProfitDebtTokenUnits !== "string"),
             budgets: { gasUnits: gasUnitsRaw, slippageBps, mevBudgetBps, builderFeeBps, safetyBufferBps },
             executionEnabled: false,
             transactionSubmitted: false,
-            warning: "This is a read-only Aave Base/Arbitrum screening rank. It uses reserve-specific balances/configuration, eMode-aware prices/bonus, Aave flash premium/liquidity, same-block direct Uniswap V3 quotes, RPC gas price, and explicit caller budgets. It is not a complete transaction gas estimate because no audited flash-loan executor exists; multi-hop routes, L1 data fees, failed-transaction costs, exact scaled-token rounding and live MEV remain unverified. No signing or broadcasting."
+            warning: "This is a read-only Aave/Morpho Base/Arbitrum screening rank. It uses reserve-specific Aave balances/configuration, eMode-aware prices/bonus, Morpho IRM-accrued debt, Aave flash premium/liquidity, same-block direct Uniswap V3 quotes, RPC gas price, and explicit caller budgets. It is not a complete transaction gas estimate because no audited flash-loan executor exists; multi-hop routes, L1 data fees, failed-transaction costs, exact scaled-token rounding and live MEV remain unverified. No signing or broadcasting."
           });
         } catch (error) {
           send(res, 502, { error: "multichain_opportunity_scan_failed", message: error instanceof Error ? error.message : "Opportunity scan failed" });
