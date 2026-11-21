@@ -14,21 +14,21 @@ import {
 const WAD = 10n ** 18n;
 
 describe("Aave V3 L2 liquidation rules", () => {
-  it("uses total account debt and a strict threshold for the 50% close factor", () => {
-    expect(aaveL2CloseFactorBps(94n * WAD / 100n, 5_000n, 2_000n)).toBe(10_000n);
-    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 1_999n, 2_000n)).toBe(10_000n);
-    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 2_000n, 2_000n)).toBe(10_000n);
-    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 2_001n, 2_000n)).toBe(5_000n);
+  it("uses selected reserve debt and collateral thresholds to select the 50% close factor", () => {
+    expect(aaveL2CloseFactorBps(94n * WAD / 100n, 5_000n, 5_000n, 20_000n, 2_000n)).toBe(10_000n);
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 1_999n, 5_000n, 20_000n, 2_000n)).toBe(10_000n);
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 5_000n, 1_999n, 20_000n, 2_000n)).toBe(10_000n);
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 2_000n, 5_000n, 20_000n, 2_000n)).toBe(10_000n);
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 5_000n, 2_000n, 20_000n, 2_000n)).toBe(10_000n);
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 2_001n, 2_001n, 20_000n, 2_000n)).toBe(5_000n);
   });
 
-  it("does not let a small selected reserve override an account-level close factor", () => {
-    // Once the account is above the total-debt threshold, the selected debt
-    // reserve is capped at 50% of account debt even if the reserve itself is tiny.
-    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 20_000n, 2_000n)).toBe(5_000n);
+  it("caps a selected debt reserve by half of total account debt only after eligibility", () => {
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 20_000n, 20_000n, 20_000n, 2_000n)).toBe(5_000n);
   });
 
   it("withholds pair sizing when the deployed close-factor threshold cannot be read", () => {
-    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 10_000n, null)).toBeNull();
+    expect(aaveL2CloseFactorBps(96n * WAD / 100n, 10_000n, 10_000n, 20_000n, null)).toBeNull();
   });
 
   it("matches Aave Origin eMode collateral bitmap and legacy price-source behavior", () => {
