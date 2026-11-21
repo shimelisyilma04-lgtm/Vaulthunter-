@@ -1,0 +1,21 @@
+name: Isolated Executor Harness
+
+on:
+  push:
+    branches: [feat/accrued-risk-and-profit-pipeline]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  executor-architecture:
+    name: Test-only callback and rollback invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Run isolated Solidity harness
+        run: forge test -vvv
