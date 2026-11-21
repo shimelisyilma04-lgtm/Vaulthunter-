@@ -27,13 +27,17 @@ The RPC endpoint is saved in the local `.env` file, which is ignored by Git. Nev
 3. Set `VAULTHUNTER_DB_PATH` to a persistent local path, for example `./data/vaulthunter.sqlite`.
 4. Run `npm run aave:index:once` to verify one pass, or `npm run aave:index` to keep indexing.
 
-The first backfill begins at block 16,291,127 and advances in small sequential ranges of at most 10 blocks by default. During backfill, the continuous runner proceeds to the next batch without the normal polling delay and defers account snapshots until it reaches the confirmed chain head. After catching up, it refreshes a rotating batch of borrowers and waits for the configured poll interval. A full historical backfill can still take many hours or days on free RPC plans; do not increase request concurrency to bypass provider limits. Use the one-shot command to test connectivity, then use the continuous runner for the backfill.
+The first backfill begins at block 16,291,127 and advances in small sequential ranges of at most 10 blocks by default. You may raise the batch size to at most 2000 only when your RPC provider supports the larger log range. During backfill, the continuous runner proceeds to the next batch without the normal polling delay and defers account snapshots until it reaches the confirmed chain head. After catching up, it refreshes a rotating batch of borrowers and waits for the configured poll interval. A full historical backfill can still take many hours or days on free RPC plans; do not increase request concurrency to bypass provider limits. Use the one-shot command to test connectivity, then use the continuous runner for the backfill.
 
-## GitHub Actions backfill\n\nA resumable scheduled workflow is included at `.github/workflows/aave-historical-backfill.yml`. It runs the continuous indexer for up to 330 minutes, stores the SQLite database in the Actions cache for the next run, and publishes a seven-day downloadable artifact. To start immediately, open the repository's Actions tab, select **Aave V3 Historical Backfill**, and choose **Run workflow**. The repository must have an `ETHEREUM_RPC_URL` Actions secret configured. The workflow is scheduled daily as well.\n\n## Configuration
+## GitHub Actions backfill
+
+A resumable scheduled workflow is included at `.github/workflows/aave-historical-backfill.yml`. It runs the continuous indexer for up to 330 minutes, stores the SQLite database in the Actions cache for the next run, and publishes a seven-day downloadable artifact. To start immediately, open the repository's Actions tab, select **Aave V3 Historical Backfill**, and choose **Run workflow**. The repository must have an `ETHEREUM_RPC_URL` Actions secret configured. The workflow is scheduled daily as well.
+
+## Configuration
 
 - `AAVE_INDEXER_START_BLOCK`: default 16291127 for a fresh full-history index; set a later block only when intentionally creating a partial history.
 - `AAVE_INDEXER_CONFIRMATIONS`: confirmation depth (default 12).
-- `AAVE_INDEXER_BATCH_BLOCKS`: blocks per `eth_getLogs` request (default 10, maximum 2000; default 10, increase only if your RPC provider supports it).
+- `AAVE_INDEXER_BATCH_BLOCKS`: blocks per `eth_getLogs` request (default 10, maximum 2000; increase only if your RPC provider supports it).
 - `AAVE_INDEXER_POLL_INTERVAL_MS`: continuous polling interval (default 30 seconds).
 - `AAVE_INDEXER_SNAPSHOT_BATCH_SIZE`: maximum borrowers refreshed per pass (default 100); oldest snapshots are refreshed first so large markets rotate fairly.
 - `VAULTHUNTER_DB_PATH`: SQLite database path (default `./data/vaulthunter.sqlite`).
