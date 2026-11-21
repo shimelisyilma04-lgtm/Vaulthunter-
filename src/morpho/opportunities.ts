@@ -56,8 +56,8 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         const lltv = BigInt(params[4] as bigint);
         if (lltv.toString() !== BigInt(candidate.lltvWad).toString()) throw new Error("Market LLTV differs from stored snapshot");
         const position = await morpho.getFunction("position")(candidate.marketId, candidate.borrower, { blockTag: blockNumber }) as readonly bigint[];
-        const borrowShares = BigInt(position[1]);
-        const collateralAssets = BigInt(position[2]);
+        const borrowShares = BigInt(position[1] ?? 0n);
+        const collateralAssets = BigInt(position[2] ?? 0n);
         if (borrowShares === 0n || collateralAssets === 0n) {
           data.push({ borrower: candidate.borrower, marketId: candidate.marketId, status: "rejected", reasons: ["Position is now closed or has no collateral"], validationBlock: blockNumber });
           continue;
@@ -66,9 +66,9 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         const price = BigInt(await oracle.getFunction("price")({ blockTag: blockNumber }));
         if (price <= 0n) throw new Error("Oracle returned a zero price");
         const marketState = {
-          totalSupplyAssets: BigInt(market[0]), totalSupplyShares: BigInt(market[1]),
-          totalBorrowAssets: BigInt(market[2]), totalBorrowShares: BigInt(market[3]),
-          lastUpdate: BigInt(market[4]), fee: BigInt(market[5])
+          totalSupplyAssets: BigInt(market[0] ?? 0n), totalSupplyShares: BigInt(market[1] ?? 0n),
+          totalBorrowAssets: BigInt(market[2] ?? 0n), totalBorrowShares: BigInt(market[3] ?? 0n),
+          lastUpdate: BigInt(market[4] ?? 0n), fee: BigInt(market[5] ?? 0n)
         };
         const elapsed = BigInt(block.timestamp) - marketState.lastUpdate;
         if (elapsed < 0n) throw new Error("Market lastUpdate is later than validation block timestamp");
