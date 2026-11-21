@@ -383,6 +383,35 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
         });
         return;
       }
+      if (url.pathname === "/api/v1/morpho/risk") {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable", message: "Morpho monitoring storage is not configured." });
+          return;
+        }
+        const now = Date.now();
+        const snapshots = await morphoStore.listRiskPositions(1, limitFrom(url, 50, 100));
+        const data = snapshots.map((row, index) => {
+          const snapshotAgeSeconds = Math.max(0, Math.floor((now - Date.parse(row.snapshotUpdatedAt)) / 1000));
+          const healthFactor = Number(BigInt(row.healthFactorWad)) / 1e18;
+          const riskClassification = healthFactor < 1 ? "liquidatable-at-snapshot"
+            : healthFactor <= 1.05 ? "critical"
+            : healthFactor <= 1.10 ? "high"
+            : healthFactor <= 1.25 ? "elevated" : "lower";
+          return {
+            rank: index + 1, ...row, healthFactor, snapshotAgeSeconds,
+            snapshotFresh: Number.isFinite(snapshotAgeSeconds) && snapshotAgeSeconds <= 60,
+            riskClassification, liquidationEligibleAtSnapshot: healthFactor < 1
+          };
+        });
+        send(res, 200, {
+          protocol: "morpho-blue", chain: "ethereum", chainId: 1, mode: "read-only",
+          data, count: data.length,
+          riskBands: { liquidatable: "<1.00", critical: "1.00-1.05", high: "1.05-1.10", elevated: "1.10-1.25" },
+          freshnessWindowSeconds: 60, ranking: "lowest-health-factor-first", executionEnabled: false,
+          warning: "Risk bands are screening heuristics, not predictions. Health factors and eligibility can change with prices, debt accrual and on-chain state. Revalidate all values at one fresh pinned block; no transaction is submitted."
+        });
+        return;
+      }
       if (url.pathname === "/api/v1/morpho/candidates") {
         if (!morphoStore) {
           send(res, 503, { error: "morpho_storage_unavailable", message: "Morpho monitoring storage is not configured." });
