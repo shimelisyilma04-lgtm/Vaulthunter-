@@ -23,7 +23,7 @@ interface IAavePoolHarness {
 }
 interface IMorphoHarness {
     function flashLoan(address token, uint256 assets, bytes calldata data) external;
-    function liquidate(address loanToken, address collateralToken, address borrower, uint256 seizedAssets, uint256 repaidAssets, bytes calldata data) external;
+    function liquidate(bytes32 marketId, address loanToken, address collateralToken, address borrower, uint256 seizedAssets, uint256 repaidAssets, bytes calldata data) external;
 }
 interface ISwapHarness {
     function swapExactInput(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin, address recipient) external returns (uint256);
@@ -98,12 +98,15 @@ contract MockAavePoolHarness is IAavePoolHarness {
 }
 
 contract MockMorphoHarness is IMorphoHarness {
+    bytes32 public configuredMarketId;
+    function setMarketId(bytes32 value) external { configuredMarketId = value; }
     function flashLoan(address token, uint256 assets, bytes calldata data) external override {
         require(IERC20Harness(token).transfer(msg.sender, assets), "FLASH_TRANSFER");
         IMorphoFlashLoanCallbackHarness(msg.sender).onMorphoFlashLoan(assets, data);
         require(IERC20Harness(token).transferFrom(msg.sender, address(this), assets), "FLASH_REPAY");
     }
-    function liquidate(address loanToken, address collateralToken, address borrower, uint256 seizedAssets, uint256 repaidAssets, bytes calldata data) external override {
+    function liquidate(bytes32 marketId, address loanToken, address collateralToken, address borrower, uint256 seizedAssets, uint256 repaidAssets, bytes calldata data) external override {
+        require(marketId != bytes32(0) && marketId == configuredMarketId, "MARKET");
         require(borrower != address(0), "BORROWER");
         require(IERC20Harness(collateralToken).transfer(msg.sender, seizedAssets), "SEIZE_TRANSFER");
         IMorphoLiquidateCallbackHarness(msg.sender).onMorphoLiquidate(repaidAssets, data);
@@ -123,6 +126,8 @@ contract IsolatedExecutorHarness is IAaveSimpleReceiverHarness, IMorphoLiquidate
     ISwapHarness public immutable router;
 
     struct Plan {
+        uint256 chainId;
+        bytes32 marketId;
         address debtToken;
         address collateralToken;
         address borrower;
@@ -152,7 +157,7 @@ contract IsolatedExecutorHarness is IAaveSimpleReceiverHarness, IMorphoLiquidate
     modifier onlyOwner() { require(msg.sender == owner, "OWNER"); _; }
 
     function startAave(Plan calldata plan) external onlyOwner {
-        require(!aaveActive && plan.amount > 0 && plan.seized > 0, "PLAN");
+        require(!aaveActive && plan.chainId == block.chainid && plan.amount > 0 && plan.seized > 0, "PLAN");
         require(plan.debtToken != address(0) && plan.collateralToken != address(0) && plan.debtToken != plan.collateralToken, "TOKENS");
         aavePlan = plan;
         aaveBaseline = IERC20Harness(plan.debtToken).balanceOf(address(this));
@@ -173,6 +178,7 @@ contract IsolatedExecutorHarness is IAaveSimpleReceiverHarness, IMorphoLiquidate
 
         IERC20Harness(p.debtToken).approve(address(aavePool), amount);
         aavePool.liquidationCall(p.collateralToken, p.debtToken, p.borrower, amount, false);
+        IERC20Harness(p.debtToken).approve(address(aavePool), 0);
         IERC20Harness(p.collateralToken).approve(address(router), p.seized);
         uint256 beforeOut = IERC20Harness(p.debtToken).balanceOf(address(this));
         router.swapExactInput(p.collateralToken, p.debtToken, p.seized, p.minOut, address(this));
@@ -188,7 +194,7 @@ contract IsolatedExecutorHarness is IAaveSimpleReceiverHarness, IMorphoLiquidate
     }
 
     function startMorpho(Plan calldata plan) external onlyOwner {
-        require(!morphoActive && plan.amount > 0 && plan.seized > 0 && plan.repaidAssets > 0, "PLAN");
+        require(!morphoActive && plan.chainId == block.chainid && plan.marketId != bytes32(0) && plan.amount > 0 && plan.seized > 0 && plan.repaidAssets > 0, "PLAN");
         require(plan.debtToken != address(0) && plan.collateralToken != address(0) && plan.debtToken != plan.collateralToken, "TOKENS");
         morphoPlan = plan;
         morphoBaseline = IERC20Harness(plan.debtToken).balanceOf(address(this));
@@ -204,7 +210,7 @@ contract IsolatedExecutorHarness is IAaveSimpleReceiverHarness, IMorphoLiquidate
         Plan memory p = morphoPlan;
         require(assets == p.amount, "MORPHO_FLASH_AMOUNT");
         morphoOuterEntered = true;
-        morpho.liquidate(p.debtToken, p.collateralToken, p.borrower, p.seized, p.repaidAssets, "");
+        morpho.liquidate(p.marketId, p.debtToken, p.collateralToken, p.borrower, p.seized, p.repaidAssets, "");
         morphoOuterEntered = false;
         require(IERC20Harness(p.debtToken).balanceOf(address(this)) >= morphoBaseline + assets + p.minProfit, "MORPHO_UNPROFITABLE");
         IERC20Harness(p.debtToken).approve(address(morpho), assets);
@@ -243,6 +249,7 @@ contract ExecutorArchitectureTest {
         collateral = new MockERC20Harness();
         aave = new MockAavePoolHarness(address(debt), address(collateral), 100);
         morpho = new MockMorphoHarness();
+        morpho.setMarketId(bytes32(uint256(1)));
         router = new MockSwapRouterHarness();
         executor = new IsolatedExecutorHarness(address(aave), address(morpho), address(router));
         debt.mint(address(aave), 10_000);
@@ -256,6 +263,7 @@ contract ExecutorArchitectureTest {
 
     function _plan(uint256 minOut, uint256 minProfit, uint256 maxPremium) private view returns (IsolatedExecutorHarness.Plan memory) {
         return IsolatedExecutorHarness.Plan({
+            chainId: block.chainid, marketId: bytes32(uint256(1)),
             debtToken: address(debt), collateralToken: address(collateral), borrower: BORROWER,
             amount: 100, seized: 50, repaidAssets: 100, minOut: minOut,
             minProfit: minProfit, maxPremium: maxPremium
@@ -265,6 +273,14 @@ contract ExecutorArchitectureTest {
     function testAaveCallbackRepaysPremiumAndPreservesMinimumProfit() public {
         executor.startAave(_plan(110, 10, 2));
         require(debt.balanceOf(address(executor)) >= 19, "AAVE_PROFIT_NOT_RETAINED");
+    }
+
+    function testAaveRejectsWrongChainId() public {
+        IsolatedExecutorHarness.Plan memory plan = _plan(110, 10, 2);
+        plan.chainId = block.chainid + 1;
+        bool reverted;
+        try executor.startAave(plan) {} catch { reverted = true; }
+        require(reverted, "WRONG_CHAIN_ACCEPTED");
     }
 
     function testAaveRejectsWrongInitiator() public {
@@ -309,6 +325,14 @@ contract ExecutorArchitectureTest {
     function testMorphoNestedLiquidationCallbackAndFlashLoanRepayment() public {
         executor.startMorpho(_plan(110, 10, 0));
         require(debt.balanceOf(address(executor)) >= 20, "MORPHO_PROFIT_NOT_RETAINED");
+    }
+
+    function testMorphoRejectsWrongMarketId() public {
+        IsolatedExecutorHarness.Plan memory plan = _plan(110, 10, 0);
+        plan.marketId = bytes32(uint256(2));
+        bool reverted;
+        try executor.startMorpho(plan) {} catch { reverted = true; }
+        require(reverted, "WRONG_MARKET_ACCEPTED");
     }
 
     function testMorphoRejectsUnauthorizedLiquidationCallback() public {
