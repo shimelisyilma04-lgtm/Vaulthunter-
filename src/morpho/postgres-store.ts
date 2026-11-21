@@ -41,6 +41,8 @@ export class PostgresMorphoStore implements MorphoStorePort {
       );
       CREATE INDEX IF NOT EXISTS idx_morpho_candidates
         ON morpho_borrowers(chain_id, market_id, health_factor_wad);
+      CREATE INDEX IF NOT EXISTS idx_morpho_refresh
+        ON morpho_borrowers(chain_id, market_id, snapshot_updated_at);
     `);
   }
 
@@ -149,7 +151,12 @@ export class PostgresMorphoStore implements MorphoStorePort {
     const safeLimit = Math.max(1,Math.min(1000,Math.trunc(limit)));
     const r = await this.pool.query(`
       SELECT address FROM morpho_borrowers WHERE chain_id=$1 AND market_id=$2
-      ORDER BY CASE WHEN snapshot_updated_at IS NULL THEN 0 ELSE 1 END,snapshot_updated_at ASC
+      ORDER BY
+        CASE WHEN snapshot_updated_at IS NULL OR snapshot_updated_at < NOW() - INTERVAL '60 seconds' THEN 0 ELSE 1 END,
+        CASE WHEN debt_assets IS NOT NULL AND debt_assets::numeric > 0
+          AND health_factor_wad IS NOT NULL AND health_factor_wad::numeric < 1000000000000000000
+          THEN 0 ELSE 1 END,
+        snapshot_updated_at ASC
       LIMIT $3
     `,[chainId,marketId.toLowerCase(),safeLimit]);
     return r.rows.map((row) => ({ address: String(row.address) }));
@@ -187,7 +194,11 @@ export class PostgresMorphoStore implements MorphoStorePort {
           (SELECT COUNT(*)::text FROM morpho_borrowers WHERE chain_id=$1) AS borrowers,
           (SELECT COUNT(*)::text FROM morpho_borrowers WHERE chain_id=$1
             AND debt_assets IS NOT NULL AND debt_assets::numeric>0
-            AND health_factor_wad IS NOT NULL AND health_factor_wad::numeric<1000000000000000000) AS candidates,
+            AND health_factor_wad IS NOT NULL AND health_factor_wad::numeric<1000000000000000000
+            AND snapshot_updated_at > NOW() - INTERVAL '60 seconds') AS candidates,
+          (SELECT COUNT(*)::text FROM morpho_borrowers WHERE chain_id=$1
+            AND snapshot_updated_at > NOW() - INTERVAL '2 minutes') AS refreshed_last_2_minutes,
+          (SELECT MAX(snapshot_updated_at)::text FROM morpho_borrowers WHERE chain_id=$1) AS latest_snapshot_at,
           (SELECT MAX(observed_block)::text FROM morpho_borrowers WHERE chain_id=$1) AS latest_snapshot_block
       `,[chainId]),
       this.getGlobalCheckpoint(chainId)
@@ -197,6 +208,9 @@ export class PostgresMorphoStore implements MorphoStorePort {
       marketCount:Number(row.markets ?? 0),
       borrowerCount:Number(row.borrowers ?? 0),
       candidateCount:Number(row.candidates ?? 0),
+      refreshedLast2Minutes:Number(row.refreshed_last_2_minutes ?? 0),
+      latestSnapshotAt:row.latest_snapshot_at===null || row.latest_snapshot_at===undefined
+        ? null : String(row.latest_snapshot_at),
       latestSnapshotBlock:row.latest_snapshot_block===null || row.latest_snapshot_block===undefined
         ? null : Number(row.latest_snapshot_block),
       checkpoint
@@ -215,6 +229,7 @@ export class PostgresMorphoStore implements MorphoStorePort {
       FROM morpho_borrowers
       WHERE chain_id=$1 AND debt_assets IS NOT NULL AND debt_assets::numeric>0
         AND health_factor_wad IS NOT NULL AND health_factor_wad::numeric<1000000000000000000
+        AND snapshot_updated_at > NOW() - INTERVAL '60 seconds'
       ORDER BY health_factor_wad::numeric ASC
       LIMIT $2
     `,[chainId,safeLimit]);
