@@ -93,6 +93,7 @@ See [liquidation math and validation boundaries](docs/LIQUIDATION_MATH.md) for p
 - Source-level verification notes, known chain-version limitations and the pre-execution safety gate: [docs/INDEPENDENT_PROTOCOL_REVIEW.md](docs/INDEPENDENT_PROTOCOL_REVIEW.md).
 - The Foundry suite in `test-solidity/ExecutorArchitecture.t.sol` is a **test-only mock harness** for Aave/Morpho callback order, repayment, min-output, minimum-profit, reentrancy rejection and atomic rollback. It is not a production executor.
 - Run the isolated Solidity suite with `forge test -vvv`. GitHub Actions runs it separately from the TypeScript CI.
+- Run `npm run verify:protocol-deployments` to fingerprint the live Aave Pool proxies/implementations and Morpho Blue singleton bytecode on Base and Arbitrum at pinned blocks. CI uses public RPC fallbacks unless `BASE_RPC_URL` / `ARBITRUM_RPC_URL` secrets are supplied.
 - Morpho read-only accrual now mirrors `borrowRateView`, the core three-term Taylor formula and virtual-share accounting.
 - Aave reserve-level sizing now uses selected-reserve close-factor thresholds, eMode price-source rules and explicit liquidation rounding. Live Base/Arbitrum Pool implementation revisions still require pinned-block fork verification before estimates can be considered execution-ready.
 
