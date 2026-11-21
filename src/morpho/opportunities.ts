@@ -34,6 +34,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
     const blockNumber = await provider.getBlockNumber();
     const block = await provider.getBlock(blockNumber);
     if (!block?.hash) throw new Error("Unable to load validation block hash");
+    const validationBlockHash = block.hash;
     const candidates = await store.listRiskPositions(1, Math.max(1, Math.min(20, limit)));
     const morpho = new Contract(MORPHO, MORPHO_ABI, provider);
     const markets = new Map<string, Promise<any>>();
@@ -113,7 +114,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           data.push({
             borrower: candidate.borrower, marketId: candidate.marketId, status: "rejected",
             reasons: ["Morpho liquidation sizing failed collateral or repayment-share safety checks"],
-            validationBlock: blockNumber, validationBlockHash: block.hash,
+            validationBlock: blockNumber, validationBlockHash: validationBlockHash,
             liquidationMath: {
               mode: quote.liquidationMode,
               collateralLimited: quote.collateralLimited,
@@ -144,7 +145,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           }, blockNumber);
           swapQuote = result as unknown as Record<string, unknown>;
           if (result.amountOut === null) reasons.push("No supported Uniswap V3 fee-tier route returned a quote");
-          if (result.blockNumber !== blockNumber || result.blockHash.toLowerCase() !== block.hash.toLowerCase()) {
+          if (result.blockNumber !== blockNumber || result.blockHash.toLowerCase() !== validationBlockHash.toLowerCase()) {
             reasons.push("Swap quote block hash differs from the pinned liquidation validation block");
             swapQuote = null;
           }
@@ -190,7 +191,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         data.push({
           borrower: candidate.borrower, marketId: candidate.marketId,
           status: marketLiquiditySufficient && swapQuote && swapQuote.amountOut !== null ? "partially-validated" : "not-validated",
-          validationBlock: blockNumber, validationBlockHash: block.hash,
+          validationBlock: blockNumber, validationBlockHash: validationBlockHash,
           healthFactor: Number(healthFactorWad) / 1e18,
           loanToken: { address: loanToken, symbol: String(loanSymbol), decimals: Number(loanMeta) },
           collateralToken: { address: collateralToken, symbol: String(collateralSymbol), decimals: Number(collateralMeta) },
@@ -202,7 +203,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           liquidationMath: {
             source: "Morpho Blue liquidate() integer rounding mirrored locally",
             validationBlock: blockNumber,
-            validationBlockHash: block.hash,
+            validationBlockHash: validationBlockHash,
             mode: quote.liquidationMode,
             collateralLimited: quote.collateralLimited,
             requestedRepaidShares: quote.requestedRepaidShares.toString(),
@@ -233,7 +234,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
     return {
       protocol: "morpho-blue", chain: "ethereum", chainId: 1,
       status: data.length === 0 ? "no-fresh-risk-positions" : data.some((row) => row.status === "partially-validated") ? "partial-validation-only" : "no-validated-opportunities",
-      validationBlock: blockNumber, validationBlockHash: block.hash,
+      validationBlock: blockNumber, validationBlockHash: validationBlockHash,
       candidatesChecked: data.length, data,
       definition: "Partially validated means current liquidation eligibility, Morpho quote, market liquidity and a DEX quote were checked. It does not mean liquidator funding or net profitability is verified.",
       executionEnabled: false, transactionSigningEnabled: false, transactionSubmissionEnabled: false
