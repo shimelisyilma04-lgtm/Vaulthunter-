@@ -96,7 +96,13 @@ export class PostgresMorphoStore implements MorphoStorePort {
       }
       await client.query(`
         INSERT INTO morpho_global_checkpoint(chain_id,last_block,last_block_hash) VALUES($1,$2,$3)
-        ON CONFLICT(chain_id) DO UPDATE SET last_block=EXCLUDED.last_block,last_block_hash=EXCLUDED.last_block_hash
+        ON CONFLICT(chain_id) DO UPDATE SET
+          last_block=GREATEST(morpho_global_checkpoint.last_block,EXCLUDED.last_block),
+          last_block_hash=CASE
+            WHEN EXCLUDED.last_block >= morpho_global_checkpoint.last_block
+            THEN EXCLUDED.last_block_hash
+            ELSE morpho_global_checkpoint.last_block_hash
+          END
       `, [chainId,block,hash]);
       await client.query("COMMIT");
     } catch (error) {
