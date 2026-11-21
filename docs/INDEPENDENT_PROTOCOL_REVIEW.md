@@ -12,7 +12,7 @@ Primary references:
 
 Verified source rules:
 1. Morpho's core `_accrueInterest` calls the market IRM's `borrowRate`, then computes `interest = totalBorrowAssets.wMulDown(borrowRate.wTaylorCompounded(elapsed))`.
-2. The read-only mirror must use the IRM's `borrowRateView` at the same block, not the stateful `borrowRate` selector. Stateful adaptive IRMs may update their stored rate in `borrowRate`.
+2. Morpho core calls the IRM's stateful `borrowRate` during accrual. The read-only mirror calls `borrowRateView` at the same block to avoid mutating IRM state. The official AdaptiveCurveIRM implements both through the same `_borrowRate` calculation: `borrowRateView` returns the average rate, while `borrowRate` additionally stores the new target rate. Markets whose IRM lacks `borrowRateView`, or whose view result is not equivalent to its stateful result, must be withheld rather than guessed.
 3. The current Morpho core `wTaylorCompounded` implementation uses **three terms**: `x + x²/2 + x³/6`, with fixed-point floor rounding at each intermediate step. A five-term exponential approximation is not core-equivalent.
 4. Morpho share conversions use virtual assets = 1 and virtual shares = 1e6. Borrower debt is `toAssetsUp(borrowShares, accruedTotalBorrowAssets, totalBorrowShares)`; seizure sizing uses `toAssetsDown`.
 5. Health is checked using `collateral.mulDivDown(price, 1e36).wMulDown(LLTV)` against debt rounded up.
@@ -20,7 +20,7 @@ Verified source rules:
 7. Core liquidation order is important: accrue interest; check health; calculate liquidation amounts; update market/position state; transfer collateral to the liquidator; invoke `onMorphoLiquidate` if callback data is non-empty; then pull loan-token repayment using `transferFrom`.
 
 Changes made in this branch:
-- The read path now calls `borrowRateView`.
+- The read path now calls `borrowRateView`; the official AdaptiveCurveIRM source was checked to confirm it returns the same average rate as `borrowRate` while omitting the state update.
 - Taylor compounding now mirrors Morpho's three-term fixed-point sequence.
 - Morpho borrow-share-to-asset conversion now includes virtual assets/shares.
 - The pure liquidation estimate uses the same virtual-offset conversion in debt, repayment and seizure calculations.
