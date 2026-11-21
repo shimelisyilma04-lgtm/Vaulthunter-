@@ -26,12 +26,15 @@ returns `rejected`. Only complete evidence can reach `simulation_review`.
 ### Morpho Blue
 
 Morpho's raw `market()` values represent the last interest-accrual state, not
-necessarily the current debt. Use the official Morpho SDK / MorphoBalancesLib
-or an exact implementation of the Morpho interest accrual path, including the
-market's IRM, `lastUpdate`, Taylor-compounded interest and rounding. Calculate
-borrower debt shares against the accrued totals. Then calculate the liquidation
-incentive and repay/seize amounts with the same rounding rules as the contract.
-Do not use the current scanner's raw totalBorrowAssets as an authoritative quote.
+necessarily the current debt. The scanner now calls the onchain market IRM's
+`borrowRateView` at a pinned block and applies Morpho's three-term Taylor
+compounding, floor interest rounding, and `SharesMathLib` virtual assets/shares
+for borrower debt. The pure `src/morpho/liquidation-quote.ts` module also mirrors
+the repaid-shares liquidation path, including the incentive factor and seize
+rounding. These calculations still require parity testing against the official
+SDK / `MorphoBalancesLib` and forked `eth_call` results across supported IRMs and
+markets. The quote module is not yet wired to scanner candidates or an
+executable swap/simulation path.
 
 ### Aave V3
 
