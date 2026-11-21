@@ -32,3 +32,10 @@ jobs:
         run: npm run aave:scan
         env:
           AAVE_SCAN_LOOKBACK_BLOCKS: 100
+      - name: Run bounded Morpho Blue read-only smoke scan
+        if: ${{ env.ETHEREUM_RPC_URL != '' }}
+        run: npm run morpho:scan:once
+        env:
+          MORPHO_MAX_MARKETS: 10
+          MORPHO_INDEXER_MAX_BATCHES_PER_PASS: 1
+          VAULTHUNTER_DB_PATH: /tmp/vaulthunter-morpho-smoke.sqlite
