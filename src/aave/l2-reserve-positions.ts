@@ -47,6 +47,23 @@ function percentDivCeil(value: bigint, percentage: bigint): bigint {
   if (percentage === 0n) throw new Error("Liquidation bonus must be positive");
   return ceilDiv(value * BPS, percentage);
 }
+export function aaveL2CloseFactorBps(healthFactorWad: bigint, totalDebtBase: bigint, minBaseThreshold: bigint | null): bigint {
+  return healthFactorWad > 95n * WAD / 100n &&
+    (minBaseThreshold === null || totalDebtBase > minBaseThreshold) ? 5_000n : 10_000n;
+}
+export function aaveL2UsesEModePrice(userCategory: number, reserveCategory: number, priceSource: string): boolean {
+  return userCategory > 0 && reserveCategory === userCategory && priceSource.toLowerCase() !== ZERO;
+}
+export function aaveL2DustSatisfied(
+  debtRemainingBase: bigint,
+  collateralRemainingBase: bigint,
+  minLeftoverBase: bigint | null,
+  debtFullyCleared: boolean,
+  collateralFullyCleared: boolean
+): boolean {
+  return debtFullyCleared || collateralFullyCleared ||
+    (minLeftoverBase !== null && debtRemainingBase >= minLeftoverBase && collateralRemainingBase >= minLeftoverBase);
+}
 
 export interface AaveL2ReservePosition {
   asset: string;
@@ -244,8 +261,7 @@ export async function inspectAaveL2ReservePositions(args: {
     }
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
-      if (userEModeCategory > 0 && eModeData && eModeData.priceSource !== ZERO &&
-          (asset.eModeCategory === userEModeCategory)) {
+      if (eModeData && aaveL2UsesEModePrice(userEModeCategory, asset.eModeCategory, eModeData.priceSource)) {
         return asBigInt(await oracle.getFunction("getAssetPrice").staticCall(eModeData.priceSource, { blockTag: observedBlock }), "eMode price");
       }
       return BigInt(asset.priceBase);
@@ -270,11 +286,8 @@ export async function inspectAaveL2ReservePositions(args: {
         const collateralBase = BigInt(collateral.collateralBalance) * collateralPrice / collateralUnit;
         const totalDebtBase = asBigInt(account[1], "total debt base");
         let maxDebtBase = BigInt(debt.totalDebt) * debtPrice / debtUnit;
-        const closeFactorApplies = hf > 95n * WAD / 100n &&
-          (minBaseThreshold === null || totalDebtBase > minBaseThreshold);
-        let closeFactorBps = 10_000n;
-        if (closeFactorApplies) {
-          closeFactorBps = 5_000n;
+        const closeFactorBps = aaveL2CloseFactorBps(hf, totalDebtBase, minBaseThreshold);
+        if (closeFactorBps === 5_000n) {
           const halfAccountDebt = (totalDebtBase * 5_000n + 5_000n) / BPS;
           if (debtBase > halfAccountDebt) maxDebtBase = halfAccountDebt;
         }
@@ -297,8 +310,7 @@ export async function inspectAaveL2ReservePositions(args: {
         const collateralRemainingBase = collateralRemaining * collateralPrice / collateralUnit;
         const debtFullyCleared = actualDebt >= BigInt(debt.totalDebt);
         const collateralFullyCleared = seized >= BigInt(collateral.collateralBalance);
-        const dustSatisfied = minLeftover !== null && (debtFullyCleared || collateralFullyCleared ||
-          (debtRemainingBase >= minLeftover && collateralRemainingBase >= minLeftover));
+        const dustSatisfied = aaveL2DustSatisfied(debtRemainingBase, collateralRemainingBase, minLeftover, debtFullyCleared, collateralFullyCleared);
         const dustRule = minLeftover === null
           ? "Pool does not expose MIN_LEFTOVER_BASE; exact dust validation requires fork simulation."
           : debtFullyCleared ? "Selected debt reserve fully repaid."
