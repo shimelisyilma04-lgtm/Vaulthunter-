@@ -469,3 +469,68 @@ export async function estimateAaveL2PairNetProfit(input: AaveL2PairProfitInput):
     await provider.destroy();
   }
 }
+
+
+export async function getAaveL2FlashLoanTerms(args: {
+  network: AaveL2Network;
+  rpcUrl: string;
+  asset: string;
+  blockNumber: number;
+}): Promise<{
+  pool: string;
+  oracle: string;
+  asset: string;
+  decimals: number;
+  flashLoanEnabled: boolean;
+  availableLiquidity: string;
+  flashLoanPremiumBps: string;
+  assetPriceBase: string;
+  nativePriceBase: string;
+  maxFeePerGasWei: string;
+}> {
+  const deployment = AAVE_V3_MARKETS[args.network];
+  const provider = new JsonRpcProvider(args.rpcUrl);
+  try {
+    const chain = await provider.getNetwork();
+    if (chain.chainId !== BigInt(deployment.chainId)) throw new Error("Flash-loan terms RPC chain mismatch");
+    const addressesProvider = new Contract(deployment.addressesProvider, PROVIDER_ABI, provider);
+    const [poolRaw, oracleRaw] = await Promise.all([
+      addressesProvider.getFunction("getPool").staticCall({ blockTag: args.blockNumber }),
+      addressesProvider.getFunction("getPriceOracle").staticCall({ blockTag: args.blockNumber })
+    ]);
+    const poolAddress = getAddress(String(poolRaw));
+    const oracleAddress = getAddress(String(oracleRaw));
+    const pool = new Contract(poolAddress, POOL_ABI, provider);
+    const reserveRaw = await pool.getFunction("getReserveData").staticCall(args.asset, { blockTag: args.blockNumber }) as readonly unknown[];
+    const configRaw = await pool.getFunction("getConfiguration").staticCall(args.asset, { blockTag: args.blockNumber }) as readonly [readonly [bigint]];
+    const reserveConfig = asBigInt(configRaw[0][0], "flash-loan reserve configuration");
+    const aToken = getAddress(String(reserveRaw[8]));
+    const asset = getAddress(args.asset);
+    const erc20 = new Contract(asset, ERC20_ABI, provider);
+    const [decimalsRaw, liquidityRaw, premiumRaw, assetPriceRaw, feeData] = await Promise.all([
+      erc20.getFunction("decimals").staticCall({ blockTag: args.blockNumber }),
+      erc20.getFunction("balanceOf").staticCall(aToken, { blockTag: args.blockNumber }),
+      pool.getFunction("FLASHLOAN_PREMIUM_TOTAL").staticCall({ blockTag: args.blockNumber }),
+      new Contract(oracleAddress, ORACLE_ABI, provider).getFunction("getAssetPrice").staticCall(asset, { blockTag: args.blockNumber }),
+      provider.getFeeData()
+    ]);
+    const wrappedNative = args.network === "base"
+      ? "0x4200000000000000000000000000000000000006"
+      : "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1";
+    const nativePriceRaw = await new Contract(oracleAddress, ORACLE_ABI, provider)
+      .getFunction("getAssetPrice").staticCall(wrappedNative, { blockTag: args.blockNumber });
+    const maxFee = feeData.maxFeePerGas ?? feeData.gasPrice;
+    if (maxFee === null) throw new Error("RPC did not provide a gas price");
+    return {
+      pool: poolAddress, oracle: oracleAddress, asset, decimals: Number(asBigInt(decimalsRaw, "flash-loan asset decimals")),
+      flashLoanEnabled: ((reserveConfig >> 63n) & 1n) === 1n,
+      availableLiquidity: asBigInt(liquidityRaw, "flash-loan liquidity").toString(),
+      flashLoanPremiumBps: asBigInt(premiumRaw, "flash-loan premium").toString(),
+      assetPriceBase: asBigInt(assetPriceRaw, "flash-loan asset price").toString(),
+      nativePriceBase: asBigInt(nativePriceRaw, "native asset price").toString(),
+      maxFeePerGasWei: maxFee.toString()
+    };
+  } finally {
+    await provider.destroy();
+  }
+}
