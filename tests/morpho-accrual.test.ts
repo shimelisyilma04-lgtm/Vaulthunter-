@@ -30,6 +30,7 @@ describe("Morpho Blue Taylor-compounded interest", () => {
     expect(morphoAccrueTotalBorrowAssets(total, 0n, elapsed)).toBe(total);
     expect(morphoAccrueTotalBorrowAssets(total, rate, 0n)).toBe(total);
     expect(() => morphoAccrueTotalBorrowAssets(total, -1n, elapsed)).toThrow();
+    expect(() => morphoAccrueTotalBorrowAssets((1n << 128n) - 1n, WAD, 1n)).toThrow(/uint128/);
   });
 
   it("uses Morpho core virtual assets and virtual shares for share conversion", () => {
