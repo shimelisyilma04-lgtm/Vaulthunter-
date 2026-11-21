@@ -273,6 +273,8 @@ contract ExecutorArchitectureTest {
     function testAaveCallbackRepaysPremiumAndPreservesMinimumProfit() public {
         executor.startAave(_plan(110, 10, 2));
         require(debt.balanceOf(address(executor)) >= 19, "AAVE_PROFIT_NOT_RETAINED");
+        require(debt.allowance(address(executor), address(aave)) == 0, "AAVE_ALLOWANCE_NOT_CLEARED");
+        require(collateral.allowance(address(executor), address(router)) == 0, "AAVE_ROUTER_ALLOWANCE_NOT_CLEARED");
     }
 
     function testAaveRejectsWrongChainId() public {
@@ -325,6 +327,8 @@ contract ExecutorArchitectureTest {
     function testMorphoNestedLiquidationCallbackAndFlashLoanRepayment() public {
         executor.startMorpho(_plan(110, 10, 0));
         require(debt.balanceOf(address(executor)) >= 20, "MORPHO_PROFIT_NOT_RETAINED");
+        require(debt.allowance(address(executor), address(morpho)) == 0, "MORPHO_ALLOWANCE_NOT_CLEARED");
+        require(collateral.allowance(address(executor), address(router)) == 0, "MORPHO_ROUTER_ALLOWANCE_NOT_CLEARED");
     }
 
     function testMorphoRejectsWrongMarketId() public {
