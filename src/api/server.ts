@@ -385,14 +385,28 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
           send(res, 503, { error: "morpho_storage_unavailable", message: "Morpho monitoring storage is not configured." });
           return;
         }
-        const data = await morphoStore.listLiquidationCandidates(1, limitFrom(url, 20, 100));
+        const now = Date.now();
+        const snapshots = await morphoStore.listLiquidationCandidates(1, limitFrom(url, 20, 100));
+        const data = snapshots.map((row) => {
+          const snapshotAgeSeconds = Math.max(0, Math.floor((now - Date.parse(row.snapshotUpdatedAt)) / 1000));
+          const snapshotFresh = Number.isFinite(snapshotAgeSeconds) && snapshotAgeSeconds <= 60;
+          return {
+            ...row,
+            snapshotAgeSeconds,
+            snapshotFresh,
+            riskClassification: snapshotFresh ? "fresh-screening-candidate" : "stale-screening-snapshot",
+            liquidationEligibleAtSnapshot: true
+          };
+        });
         send(res, 200, {
           data,
           count: data.length,
+          freshCount: data.filter((row) => row.snapshotFresh).length,
+          staleCount: data.filter((row) => !row.snapshotFresh).length,
           source: "postgresql-indexed-morpho-position-snapshots",
           ranking: "lowest-health-factor-first",
           executionEnabled: false,
-          warning: "These are historical screening snapshots. Refresh each position and verify a protocol liquidation simulation before considering any action; loan funding and DEX execution are not verified."
+          warning: "Health factor below 1 indicates liquidation eligibility at the recorded snapshot only. snapshotFresh means the row was refreshed within 60 seconds; it is not proof of current eligibility, profitability, available loan funding, or executable liquidation. Revalidate at a fresh pinned block before any decision."
         });
         return;
       }
