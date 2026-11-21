@@ -24,8 +24,11 @@ describe("Morpho Blue liquidation quote", () => {
   it("quotes a liquidatable position using protocol incentive and virtual-share rounding", () => {
     const result = quoteMorphoLiquidation(base);
     expect(result.liquidatable).toBe(true);
-    expect(result.repaidAssets).toBeGreaterThan(0n);
-    expect(result.seizedAssets).toBeGreaterThan(0n);
+    expect(result.repaidAssets).toBe(49_950_050n);
+    expect(result.seizedAssets).toBe(26_069_963n);
+    expect(result.borrowerDebtAssetsUp).toBe(199_800_200n);
+    expect(result.maxBorrowAssets).toBe(172_000_000n);
+    expect(result.liquidationIncentiveFactorWad).toBe(1_043_841_336_116_910_229n);
     expect(result.liquidationIncentiveFactorWad).toBeGreaterThan(WAD);
     expect(result.collateralSufficient).toBe(true);
     expect(result.liquiditySufficient).toBe(true);
