@@ -253,6 +253,32 @@ export class PostgresMorphoStore implements MorphoStorePort {
     }));
   }
 
+  async listRiskPositions(chainId: number, limit: number): Promise<MorphoCandidate[]> {
+    await this.ready;
+    const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+    const result = await this.pool.query(`
+      SELECT market_id AS "marketId",address AS borrower,
+        observed_block::text AS "observedBlock",borrow_shares AS "borrowShares",
+        debt_assets AS "debtAssets",collateral_assets AS "collateralAssets",
+        oracle_price AS "oraclePrice",lltv_wad AS "lltvWad",
+        health_factor_wad AS "healthFactorWad",snapshot_updated_at::text AS "snapshotUpdatedAt"
+      FROM morpho_borrowers
+      WHERE chain_id=$1 AND debt_assets IS NOT NULL AND debt_assets::numeric>0
+        AND health_factor_wad IS NOT NULL
+        AND health_factor_wad::numeric < 1250000000000000000
+        AND snapshot_updated_at > NOW() - INTERVAL '60 seconds'
+      ORDER BY health_factor_wad::numeric ASC
+      LIMIT $2
+    `, [chainId, safeLimit]);
+    return result.rows.map((row) => ({
+      marketId: String(row.marketId), borrower: String(row.borrower),
+      observedBlock: Number(row.observedBlock), borrowShares: String(row.borrowShares),
+      debtAssets: String(row.debtAssets), collateralAssets: String(row.collateralAssets),
+      oraclePrice: String(row.oraclePrice), lltvWad: String(row.lltvWad),
+      healthFactorWad: String(row.healthFactorWad), snapshotUpdatedAt: String(row.snapshotUpdatedAt)
+    }));
+  }
+
   async close(): Promise<void> {
     await this.ready;
     await this.pool.end();
