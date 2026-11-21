@@ -300,61 +300,68 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
               }, marketState, { blockTag: head }));
           const totalBorrowShares = BigInt(state[3]);
           if (totalBorrowShares === 0n) continue;
-          for (const borrower of borrowers) {
-            try {
-              const position = await morpho.getFunction("position")(market.marketId, borrower.address, { blockTag: head }) as readonly [bigint,bigint,bigint];
-              const borrowShares = BigInt(position[1]), collateralAssets = BigInt(position[2]);
-              const debt = accrueMorphoBorrowDebt({
-                totalBorrowAssets: BigInt(state[2]), totalBorrowShares,
-                borrowShares, borrowRateWadPerSecond: rate,
-                elapsedSeconds: BigInt(observedBlock.timestamp) - BigInt(state[4])
-              });
-              const debtAssets = debt.borrowerDebtAssetsUp;
-              const collateralValue = collateralAssets * price / (10n ** 36n);
-              const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(lltvWad) / debtAssets;
-              await store.saveSnapshot({
-                chainId: 1, marketId: market.marketId, address: borrower.address, observedBlock: head,
-                borrowShares: borrowShares.toString(), debtAssets: debtAssets.toString(),
-                collateralAssets: collateralAssets.toString(), oraclePrice: price.toString(),
-                lltvWad, healthFactorWad: healthFactor.toString()
-              });
-              positionsChecked += 1;
-              if (debtAssets > 0n && healthFactor < WAD) {
-                let liquidationQuote: MorphoScanResult["candidates"][number]["liquidationQuote"];
-                try {
-                  const quote = quoteMorphoLiquidation({
-                    totalBorrowAssets: debt.accruedTotalBorrowAssets,
-                    totalBorrowShares,
-                    borrowerBorrowShares: borrowShares,
-                    borrowerCollateralAssets: collateralAssets,
-                    oraclePrice: price,
-                    lltvWad: BigInt(lltvWad),
-                    // Full-position diagnostic quote. It is not an execution instruction.
-                    repaidShares: borrowShares,
-                    availableLoanLiquidity
-                  });
-                  liquidationQuote = {
-                    repaidAssets: quote.repaidAssets.toString(),
-                    seizedAssets: quote.seizedAssets.toString(),
-                    liquidationIncentiveFactorWad: quote.liquidationIncentiveFactorWad.toString(),
-                    availableLoanLiquidity: availableLoanLiquidity.toString(),
-                    liquiditySufficient: quote.liquiditySufficient,
-                    collateralSufficient: quote.collateralSufficient,
-                    loanFundingVerified: false
-                  };
-                } catch {
-                  readFailures += 1;
-                }
-                candidates.push({
-                  marketId: market.marketId, borrower: borrower.address, observedBlock: head,
-                  debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
-                  oraclePrice: price.toString(), lltvWad, healthFactorWad: healthFactor.toString(),
-                  accruedInterestAssets: debt.accruedInterestAssets.toString(),
-                  borrowRateWadPerSecond: rate.toString(),
-                  ...(liquidationQuote ? { liquidationQuote } : {})
+          // Position reads are independent once market state and oracle data are pinned.
+          // Four concurrent reads improve snapshot throughput while leaving headroom
+          // under Ankr's shared request-rate limit for history and market calls.
+          const borrowerReadConcurrency = 4;
+          for (let borrowerOffset = 0; borrowerOffset < borrowers.length; borrowerOffset += borrowerReadConcurrency) {
+            const borrowerBatch = borrowers.slice(borrowerOffset, borrowerOffset + borrowerReadConcurrency);
+            await Promise.all(borrowerBatch.map(async (borrower) => {
+              try {
+                const position = await morpho.getFunction("position")(market.marketId, borrower.address, { blockTag: head }) as readonly [bigint,bigint,bigint];
+                const borrowShares = BigInt(position[1]), collateralAssets = BigInt(position[2]);
+                const debt = accrueMorphoBorrowDebt({
+                  totalBorrowAssets: BigInt(state[2]), totalBorrowShares,
+                  borrowShares, borrowRateWadPerSecond: rate,
+                  elapsedSeconds: BigInt(observedBlock.timestamp) - BigInt(state[4])
                 });
-              }
-            } catch { readFailures += 1; }
+                const debtAssets = debt.borrowerDebtAssetsUp;
+                const collateralValue = collateralAssets * price / (10n ** 36n);
+                const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(lltvWad) / debtAssets;
+                await store.saveSnapshot({
+                  chainId: 1, marketId: market.marketId, address: borrower.address, observedBlock: head,
+                  borrowShares: borrowShares.toString(), debtAssets: debtAssets.toString(),
+                  collateralAssets: collateralAssets.toString(), oraclePrice: price.toString(),
+                  lltvWad, healthFactorWad: healthFactor.toString()
+                });
+                positionsChecked += 1;
+                if (debtAssets > 0n && healthFactor < WAD) {
+                  let liquidationQuote: MorphoScanResult["candidates"][number]["liquidationQuote"];
+                  try {
+                    const quote = quoteMorphoLiquidation({
+                      totalBorrowAssets: debt.accruedTotalBorrowAssets,
+                      totalBorrowShares,
+                      borrowerBorrowShares: borrowShares,
+                      borrowerCollateralAssets: collateralAssets,
+                      oraclePrice: price,
+                      lltvWad: BigInt(lltvWad),
+                      // Full-position diagnostic quote. It is not an execution instruction.
+                      repaidShares: borrowShares,
+                      availableLoanLiquidity
+                    });
+                    liquidationQuote = {
+                      repaidAssets: quote.repaidAssets.toString(),
+                      seizedAssets: quote.seizedAssets.toString(),
+                      liquidationIncentiveFactorWad: quote.liquidationIncentiveFactorWad.toString(),
+                      availableLoanLiquidity: availableLoanLiquidity.toString(),
+                      liquiditySufficient: quote.liquiditySufficient,
+                      collateralSufficient: quote.collateralSufficient,
+                      loanFundingVerified: false
+                    };
+                  } catch {
+                    readFailures += 1;
+                  }
+                  candidates.push({
+                    marketId: market.marketId, borrower: borrower.address, observedBlock: head,
+                    debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
+                    oraclePrice: price.toString(), lltvWad, healthFactorWad: healthFactor.toString(),
+                    accruedInterestAssets: debt.accruedInterestAssets.toString(),
+                    borrowRateWadPerSecond: rate.toString(),
+                    ...(liquidationQuote ? { liquidationQuote } : {})
+                  });
+                }
+              } catch { readFailures += 1; }
+            }));
           }
         } catch { readFailures += 1; }
         marketsRefreshed += 1;
