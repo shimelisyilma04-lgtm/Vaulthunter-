@@ -10,12 +10,17 @@ permissions:
 
 jobs:
   executor-architecture:
-    name: Test-only callback and rollback invariants
+    name: Fork verification and isolated executor invariants
     runs-on: ubuntu-latest
+    env:
+      BASE_RPC_URL: https://mainnet.base.org
+      ARBITRUM_RPC_URL: https://arb1.arbitrum.io/rpc
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
-      - name: Run isolated Solidity harness
-        run: forge test -vvv
+      - name: Verify deployed Base and Arbitrum protocol state on local forks
+        run: forge test --match-contract ProtocolForkVerificationTest -vvv
+      - name: Run isolated executor callback and rollback harness
+        run: forge test --match-contract ExecutorArchitectureTest -vvv
