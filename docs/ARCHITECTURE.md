@@ -12,7 +12,7 @@
 - Protocol adapters: Aave V3 and Morpho Blue read-only readers with pinned-block market/position/oracle reads.
 - Morpho Blue: Ethereum market discovery, confirmation-aware event indexing, IRM-based accrued-debt screening, virtual-share rounding, and a protocol-math full-position liquidation diagnostic quote.
 - Historical indexer: incremental event ingestion, durable checkpoints, confirmation-depth reorg recovery, and borrower aggregates.
-- Storage: SQLite for the single-writer low-cost deployment; use a persistent volume and backups.
+- Storage: PostgreSQL for hosted Aave and Morpho event ledgers/checkpoints; SQLite is local-development fallback only. Use a managed durable PostgreSQL provider and backups.
 - Liquidation engine: protocol-specific eligibility checks and candidate normalization.
 - Keeper engine: discovers tasks only when a documented reward or incentive exists.
 - Profitability engine: denomination-aware cost accounting with conservative buffers.
