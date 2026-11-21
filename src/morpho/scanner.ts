@@ -170,8 +170,12 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
 
     {
       // Event history spans every Morpho Blue market, not just the API's first 1,000.
-      // Fetch metadata on demand for any market that appears in indexed events.
-      for (const marketId of discoveredMarketIds) {
+      // Rehydrate markets for all previously discovered borrowers, including after restarts.
+      const borrowerMarketIds = new Set([
+        ...discoveredMarketIds,
+        ...(await store.listBorrowerMarketIds(1))
+      ]);
+      for (const marketId of borrowerMarketIds) {
         if (marketsById.has(marketId)) continue;
         try {
           const market = await getMorphoEthereumMarket(marketId);
@@ -185,7 +189,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       const offset = (await store.getSnapshotMarketOffset(1)) % refreshMarkets.length;
       const count = Math.min(config.MORPHO_MARKETS_TO_REFRESH_PER_PASS, refreshMarkets.length);
       const selectedById = new Map<string, MorphoMarket>();
-      for (const marketId of discoveredMarketIds) {
+      for (const marketId of borrowerMarketIds) {
         const market = marketsById.get(marketId);
         if (market) selectedById.set(marketId, market);
       }
