@@ -134,6 +134,7 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
     let nextBlock = checkpoint ? checkpoint.lastBlock + 1 : startBlock;
     let marketBatchesIndexed = 0, borrowersDiscovered = 0, readFailures = 0;
     let batchBlocks = config.MORPHO_INDEXER_BATCH_BLOCKS;
+    let rateLimitRetries = 0;
     const discoveredMarketIds = new Set<string>();
     while (nextBlock <= safeHead && marketBatchesIndexed < config.MORPHO_INDEXER_MAX_BATCHES_PER_PASS) {
       const toBlock = Math.min(safeHead, nextBlock + batchBlocks - 1);
@@ -143,14 +144,22 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
           address: MORPHO_BLUE_ETHEREUM, fromBlock: nextBlock, toBlock,
           topics: [positionTopics]
         });
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/429|rate.?limit|too many requests/i.test(message) && rateLimitRetries < 5) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** rateLimitRetries)));
+          rateLimitRetries += 1;
+          continue;
+        }
         if (batchBlocks > 10) {
           batchBlocks = Math.max(10, Math.floor(batchBlocks / 2));
+          rateLimitRetries = 0;
           continue;
         }
         readFailures += 1;
         break;
       }
+      rateLimitRetries = 0;
       const block = await provider.getBlock(toBlock);
       if (!block?.hash) throw new Error(`Cannot verify Morpho block ${toBlock}`);
       const entries = decodeBorrowerEvents(logs);
