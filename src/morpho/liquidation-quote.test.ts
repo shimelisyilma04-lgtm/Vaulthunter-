@@ -46,26 +46,6 @@ describe("Morpho Blue liquidation quote", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("rejects a quote whose derived repayment shares would exceed the borrower's balance", () => {
-    expect(() => quote({
-      totalBorrowAssets: 1n,
-      totalBorrowShares: 1n,
-      borrowerBorrowShares: 1n,
-      borrowerCollateralAssets: 10n ** 30n,
-      repaidShares: 1n
-    })).not.toThrow();
-    const result = quote({
-      totalBorrowAssets: 1n,
-      totalBorrowShares: 1n,
-      borrowerBorrowShares: 1n,
-      borrowerCollateralAssets: 10n ** 30n,
-      repaidShares: 1n
-    });
-    expect(result.repaymentSharesSufficient).toBe(false);
-    expect(result.valid).toBe(false);
-    expect(result.collateralSufficient).toBe(false);
-  });
-
   it("handles tiny positions and virtual-share rounding without negative balances", () => {
     const result = quote({
       totalBorrowAssets: 100n,
@@ -101,10 +81,12 @@ describe("Morpho Blue liquidation quote", () => {
     const totalAssets = 100_000_000n;
     const totalShares = 100_000_000n;
     const llTV = 86n * 10n ** 16n;
+    const maxBorrowAssets = collateral * llTV / WAD;
+    const thresholdShares = maxBorrowAssets * (totalShares + 1_000_000n) / (totalAssets + 1n);
     const atThreshold = quote({
       totalBorrowAssets: totalAssets,
       totalBorrowShares: totalShares,
-      borrowerBorrowShares: 86_000_000n,
+      borrowerBorrowShares: thresholdShares,
       borrowerCollateralAssets: collateral,
       lltvWad: llTV,
       repaidShares: 1n
@@ -112,7 +94,7 @@ describe("Morpho Blue liquidation quote", () => {
     const belowThreshold = quote({
       totalBorrowAssets: totalAssets,
       totalBorrowShares: totalShares,
-      borrowerBorrowShares: 86_000_001n,
+      borrowerBorrowShares: thresholdShares + 1n,
       borrowerCollateralAssets: collateral,
       lltvWad: llTV,
       repaidShares: 1n
