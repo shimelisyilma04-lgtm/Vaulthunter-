@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   aaveL2CloseFactorBps,
   aaveL2DustSatisfied,
-  aaveL2UsesEModePrice
+  aaveL2UsesEModePrice,
+  aavePercentDiv,
+  aavePercentMul
 } from "../src/aave/l2-reserve-positions.js";
 
 const WAD = 10n ** 18n;
@@ -25,6 +27,13 @@ describe("Aave V3 L2 liquidation rules", () => {
     expect(aaveL2UsesEModePrice(1, 2, source)).toBe(false);
     expect(aaveL2UsesEModePrice(0, 1, source)).toBe(false);
     expect(aaveL2UsesEModePrice(1, 1, "0x0000000000000000000000000000000000000000")).toBe(false);
+  });
+
+  it("uses Aave half-up percentage rounding", () => {
+    expect(aavePercentMul(1n, 5_000n)).toBe(1n);
+    expect(aavePercentMul(1n, 4_999n)).toBe(0n);
+    expect(aavePercentDiv(1n, 20_000n)).toBe(1n);
+    expect(() => aavePercentDiv(1n, 0n)).toThrow();
   });
 
   it("requires known minimum leftovers unless one side is fully cleared", () => {
