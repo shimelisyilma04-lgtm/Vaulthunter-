@@ -1,0 +1,65 @@
+name: Aave V3 Historical Backfill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  historical-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
+      AAVE_INDEXER_START_BLOCK: "16291127"
+      AAVE_INDEXER_CONFIRMATIONS: "12"
+      AAVE_INDEXER_BATCH_BLOCKS: "10"
+      AAVE_INDEXER_SNAPSHOT_BATCH_SIZE: "100"
+      VAULTHUNTER_DB_PATH: "./data/vaulthunter.sqlite"
+      LOG_LEVEL: "info"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Restore previous SQLite index
+        uses: actions/cache/restore@v4
+        with:
+          path: data/
+          key: vaulthunter-aave-index-${{ github.run_id }}
+          restore-keys: |
+            vaulthunter-aave-index-
+      - run: npm install
+      - name: Run the continuous historical indexer for up to 330 minutes
+        shell: bash
+        run: |
+          if [ -z "$ETHEREUM_RPC_URL" ]; then
+            echo "ETHEREUM_RPC_URL repository secret is missing."
+            exit 1
+          fi
+          set +e
+          timeout --signal=INT --kill-after=30s 330m npm run aave:index
+          status=$?
+          if [ "$status" -eq 124 ] || [ "$status" -eq 130 ]; then
+            echo "Backfill window ended; the SQLite checkpoint was saved."
+            exit 0
+          fi
+          exit "$status"
+      - name: Save the updated SQLite index for the next run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/
+          key: vaulthunter-aave-index-${{ github.run_id }}
+      - name: Publish a downloadable database snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vaulthunter-aave-index-${{ github.run_id }}
+          path: data/vaulthunter.sqlite*
+          if-no-files-found: warn
+          retention-days: 7
