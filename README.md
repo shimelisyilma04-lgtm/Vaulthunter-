@@ -41,7 +41,11 @@ npm run morpho:scan
 
 The continuous command resumes historical event discovery and refreshes rotating borrower snapshots. The scanner now applies the market IRM's `borrowRateView` and Morpho's Taylor-compounded interest math at a pinned block, including virtual-share debt rounding. `src/morpho/liquidation-quote.ts` reproduces Morpho's repay/seize calculation for a supplied repay-share amount and checks collateral/liquidity sufficiency. It is not yet wired into live scanner candidates, DEX quoting, or transaction simulation. See [Morpho scanner instructions](docs/MORPHO_SCANNER.md).
 
-## Validation gates\n\n`src/domain/validation.ts` provides fail-closed evidence checks for future liquidation quote and simulation adapters. It rejects stale or mixed-block evidence, missing protocol accounting, failed simulations and insufficient estimated net profit. A passing result is only `simulation_review`; it never authorizes a transaction. See [validation gate requirements](docs/VALIDATION_GATES.md).\n\n## Other commands
+## Validation gates
+
+`src/domain/validation.ts` provides fail-closed evidence checks for future liquidation quote and simulation adapters. It rejects stale or mixed-block evidence, missing protocol accounting, failed simulations and insufficient estimated net profit. A passing result is only `simulation_review`; it never authorizes a transaction. See [validation gate requirements](docs/VALIDATION_GATES.md).
+
+## Other commands
 
 ```bash
 npm run typecheck
