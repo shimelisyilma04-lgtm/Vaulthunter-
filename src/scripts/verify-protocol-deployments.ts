@@ -17,6 +17,9 @@ const BITMAP_EMODE_ABI = [
 const LEGACY_EMODE_ABI = [
   "function getEModeCategoryData(uint8) view returns (uint16,uint16,uint16,address,string)"
 ] as const;
+const COLLATERAL_BITMAP_ABI = [
+  "function getEModeCategoryCollateralBitmap(uint8) view returns (uint128)"
+] as const;
 
 async function optionalUint(contract: Contract, method: string, blockTag: number): Promise<string | null> {
   try { return String(await contract.getFunction(method).staticCall({ blockTag })); }
@@ -51,7 +54,10 @@ async function verifyAave(network: AaveL2Network, rpcUrl: string) {
       optionalUint(pool, "FLASHLOAN_PREMIUM_TOTAL", blockNumber),
       optionalUint(pool, "MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD", blockNumber),
       optionalUint(pool, "MIN_LEFTOVER_BASE", blockNumber),
-      new Contract(poolAddress, BITMAP_EMODE_ABI, provider).getFunction("getEModeCategoryData").staticCall(1, { blockTag: blockNumber }).then(() => true).catch(() => false),
+      Promise.all([
+        new Contract(poolAddress, BITMAP_EMODE_ABI, provider).getFunction("getEModeCategoryData").staticCall(1, { blockTag: blockNumber }).then(() => true).catch(() => false),
+        new Contract(poolAddress, COLLATERAL_BITMAP_ABI, provider).getFunction("getEModeCategoryCollateralBitmap").staticCall(1, { blockTag: blockNumber }).then(() => true).catch(() => false)
+      ]).then((flags) => flags.some(Boolean)),
       new Contract(poolAddress, LEGACY_EMODE_ABI, provider).getFunction("getEModeCategoryData").staticCall(1, { blockTag: blockNumber }).then(() => true).catch(() => false)
     ]);
     const eModeAbiProfile = bitmapProfile ? "aave-origin-bitmap" : legacyProfile ? "legacy-price-source" : "unknown";
