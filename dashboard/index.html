@@ -91,7 +91,7 @@
         <article class="card"><div class="cardhead">HF below 1 snapshots</div><div class="metric" id="morphoCandidates">—</div></article>
         <article class="card"><div class="cardhead">Indexed-through block</div><div class="metric" id="morphoCheckpoint" style="font-size:20px">—</div></article>
       </div>
-      <div class="tablewrap"><table><thead><tr><th>BORROWER</th><th>MARKET ID</th><th>HEALTH FACTOR</th><th>DEBT · BASE UNITS</th><th>SNAPSHOT BLOCK</th><th>UPDATED</th></tr></thead><tbody id="morphoRows"><tr><td colspan="6">Loading Morpho monitoring data…</td></tr></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th>BORROWER</th><th>MARKET ID</th><th>HEALTH FACTOR</th><th>DEBT · BASE UNITS</th><th>SNAPSHOT BLOCK</th><th>REFRESH STATUS</th></tr></thead><tbody id="morphoRows"><tr><td colspan="6">Loading Morpho monitoring data…</td></tr></tbody></table></div>
       <p id="morphoNote" class="hint" style="margin:10px 19px 16px">Morpho discovery and snapshots are incomplete historical screening data. No loan funding, swap route, transaction simulation or execution is verified.</p>
     </section>
     <section class="panel tablepanel" id="borrowers">
@@ -213,7 +213,7 @@
           Number.isFinite(hf)?hf.toFixed(5):'—',
           fmtInteger(item.debtAssets),
           fmtInteger(item.observedBlock),
-          item.snapshotUpdatedAt?new Date(item.snapshotUpdatedAt).toLocaleString():'—'
+          (item.snapshotFresh?'FRESH':'STALE')+' · '+(Number.isFinite(item.snapshotAgeSeconds)?item.snapshotAgeSeconds+'s ago':'unknown')
         ];
         for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td)}
         body.append(tr);
@@ -226,7 +226,7 @@
       document.getElementById('morphoNote').textContent=
         'Indexer '+enabled+' · PostgreSQL '+(status.durableStorageConfigured?'configured':'not configured')+
         ' · checkpoint '+checkpoint+' · '+(status.counts?.borrowersDiscovered??0)+
-        ' discovered borrowers. '+status.warning+' '+candidates.warning;
+        ' discovered borrowers · '+(candidates.freshCount??0)+' fresh / '+(candidates.staleCount??0)+' stale risk snapshots. '+status.warning+' '+candidates.warning;
     }catch(error){
       body.innerHTML='<tr><td colspan="6">Morpho data unavailable: '+esc(error instanceof Error?error.message:'Unknown error')+'</td></tr>';
       document.getElementById('morphoNote').textContent='Check the Morpho indexer configuration and Render logs.';
