@@ -43,7 +43,7 @@ export class MorphoStore {
         last_block INTEGER, last_block_hash TEXT,
         PRIMARY KEY(chain_id, market_id)
       );
-      CREATE TABLE IF NOT EXISTS morpho_borrowers (
+      CREATE TABLE IF NOT EXISTS morpho_global_checkpoint (\n        chain_id INTEGER PRIMARY KEY, last_block INTEGER NOT NULL, last_block_hash TEXT NOT NULL\n      );\n      CREATE TABLE IF NOT EXISTS morpho_scan_state (\n        chain_id INTEGER PRIMARY KEY, snapshot_market_offset INTEGER NOT NULL DEFAULT 0\n      );\n      CREATE TABLE IF NOT EXISTS morpho_borrowers (
         chain_id INTEGER NOT NULL, market_id TEXT NOT NULL, address TEXT NOT NULL,
         observed_block INTEGER, borrow_shares TEXT, debt_assets TEXT,
         collateral_assets TEXT, oracle_price TEXT, lltv_wad TEXT,
@@ -70,7 +70,7 @@ export class MorphoStore {
       .get(chainId, marketId) as MorphoCheckpoint | undefined;
     return row?.lastBlock === null || row?.lastBlock === undefined ? null : row;
   }
-  resetMarketCheckpoint(chainId: number, marketId: string): void {
+  getGlobalCheckpoint(chainId: number): MorphoCheckpoint | null {\n    const row = this.db.prepare("SELECT last_block AS lastBlock,last_block_hash AS lastBlockHash FROM morpho_global_checkpoint WHERE chain_id=?")\n      .get(chainId) as MorphoCheckpoint | undefined;\n    return row ?? null;\n  }\n  resetGlobalCheckpoint(chainId: number): void {\n    this.db.prepare("DELETE FROM morpho_global_checkpoint WHERE chain_id=?").run(chainId);\n  }\n  saveGlobalBatch(chainId: number, entries: Array<{marketId:string;address:string}>, block: number, hash: string): void {\n    const tx = this.db.transaction(() => {\n      const insert = this.db.prepare("INSERT OR IGNORE INTO morpho_borrowers(chain_id,market_id,address) VALUES(?,?,?)");\n      for (const entry of entries) insert.run(chainId, entry.marketId.toLowerCase(), entry.address.toLowerCase());\n      this.db.prepare(`INSERT INTO morpho_global_checkpoint(chain_id,last_block,last_block_hash) VALUES(?,?,?)\n        ON CONFLICT(chain_id) DO UPDATE SET last_block=excluded.last_block,last_block_hash=excluded.last_block_hash`)\n        .run(chainId, block, hash);\n    });\n    tx();\n  }\n  getSnapshotMarketOffset(chainId: number): number {\n    const row=this.db.prepare("SELECT snapshot_market_offset AS offset FROM morpho_scan_state WHERE chain_id=?").get(chainId) as {offset:number}|undefined;\n    return row?.offset ?? 0;\n  }\n  saveSnapshotMarketOffset(chainId: number, offset: number): void {\n    this.db.prepare(`INSERT INTO morpho_scan_state(chain_id,snapshot_market_offset) VALUES(?,?)\n      ON CONFLICT(chain_id) DO UPDATE SET snapshot_market_offset=excluded.snapshot_market_offset`).run(chainId,offset);\n  }\n  resetMarketCheckpoint(chainId: number, marketId: string): void {
     this.db.prepare("UPDATE morpho_markets SET last_block=NULL,last_block_hash=NULL WHERE chain_id=? AND market_id=?")
       .run(chainId, marketId);
   }
