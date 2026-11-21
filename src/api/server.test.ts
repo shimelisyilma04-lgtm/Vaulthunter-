@@ -32,6 +32,7 @@ describe("Morpho monitoring API", () => {
     const morphoStore = {
       getMonitorStats: async () => ({
         marketCount: 12, borrowerCount: 34, candidateCount: 2,
+        refreshedLast2Minutes: 30, latestSnapshotAt: new Date().toISOString(),
         latestSnapshotBlock: 26461785,
         checkpoint: { lastBlock: 26461785, lastBlockHash: "0xabc" }
       }),
@@ -40,7 +41,7 @@ describe("Morpho monitoring API", () => {
         observedBlock: 26461785, borrowShares: "10", debtAssets: "11",
         collateralAssets: "20", oraclePrice: "2000000000000000000000000000000000000",
         lltvWad: "860000000000000000", healthFactorWad: "900000000000000000",
-        snapshotUpdatedAt: "2026-11-21T06:00:00.000Z"
+        snapshotUpdatedAt: new Date().toISOString()
       }]
     } as never;
     const server = startHttpServer({} as never, morphoStore);
@@ -53,12 +54,13 @@ describe("Morpho monitoring API", () => {
       expect(status.status).toBe(200);
       expect(await status.json()).toMatchObject({
         protocol: "morpho-blue", chainId: 1, mode: "read-only",
-        counts: { marketsDiscovered: 12, borrowersDiscovered: 34, liquidationEligibleSnapshots: 2 }
+        counts: { marketsDiscovered: 12, borrowersDiscovered: 34, liquidationEligibleFreshSnapshots: 2, refreshedLast2Minutes: 30 },
+        candidateFreshnessWindowSeconds: 60
       });
       const candidates = await fetch(`${base}/api/v1/morpho/candidates?limit=5`);
       expect(candidates.status).toBe(200);
       expect(await candidates.json()).toMatchObject({
-        count: 1, executionEnabled: false, ranking: "lowest-health-factor-first"
+        count: 1, freshCount: 1, staleCount: 0, executionEnabled: false, ranking: "lowest-health-factor-first"
       });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
