@@ -38,6 +38,21 @@ describe("Morpho persistent market index", () => {
     store.close();
   });
 
+  it("persists the global event checkpoint and deduplicates borrowers across event batches", () => {
+    const store = makeStore();
+    store.upsertMarket(market);
+    const entries = [{ marketId: market.marketId, address: "0x0000000000000000000000000000000000000005" }];
+    store.saveGlobalBatch(1, entries, 110, "0xglobalblock");
+    store.saveGlobalBatch(1, entries, 120, "0xglobalblock2");
+    expect(store.getGlobalCheckpoint(1)).toEqual({ lastBlock: 120, lastBlockHash: "0xglobalblock2" });
+    expect(store.listBorrowers(1, market.marketId, 20)).toHaveLength(1);
+    store.saveSnapshotMarketOffset(1, 12);
+    expect(store.getSnapshotMarketOffset(1)).toBe(12);
+    store.resetGlobalCheckpoint(1);
+    expect(store.getGlobalCheckpoint(1)).toBeNull();
+    store.close();
+  });
+
   it("returns only debt positions below the exact WAD health threshold", () => {
     const store = makeStore();
     const borrower = "0x0000000000000000000000000000000000000005";
