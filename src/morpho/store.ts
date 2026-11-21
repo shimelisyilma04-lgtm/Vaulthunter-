@@ -70,9 +70,9 @@ export class MorphoStore {
       .get(chainId, marketId) as MorphoCheckpoint | undefined;
     return row?.lastBlock === null || row?.lastBlock === undefined ? null : row;
   }
-  resetMarketCheckpoint(chainId: number, marketId: string, block: number, hash: string): void {
-    this.db.prepare("UPDATE morpho_markets SET last_block=?,last_block_hash=? WHERE chain_id=? AND market_id=?")
-      .run(block, hash, chainId, marketId);
+  resetMarketCheckpoint(chainId: number, marketId: string): void {
+    this.db.prepare("UPDATE morpho_markets SET last_block=NULL,last_block_hash=NULL WHERE chain_id=? AND market_id=?")
+      .run(chainId, marketId);
   }
   saveBatch(chainId: number, marketId: string, addresses: string[], block: number, hash: string): void {
     const tx = this.db.transaction(() => {
