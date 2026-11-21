@@ -130,6 +130,15 @@ export class PostgresMorphoStore implements MorphoStorePort {
     return r.rows.map((row) => ({ address: String(row.address) }));
   }
 
+  async listBorrowerMarketIds(chainId: number): Promise<string[]> {
+    await this.ready;
+    const r = await this.pool.query(
+      "SELECT DISTINCT market_id FROM morpho_borrowers WHERE chain_id=$1 ORDER BY market_id",
+      [chainId]
+    );
+    return r.rows.map((row) => String(row.market_id));
+  }
+
   async saveSnapshot(input: {
     chainId:number;marketId:string;address:string;observedBlock:number;borrowShares:string;
     debtAssets:string;collateralAssets:string;oraclePrice:string;lltvWad:string;healthFactorWad:string;
