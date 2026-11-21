@@ -46,6 +46,7 @@ describe("Morpho persistent market index", () => {
     store.saveGlobalBatch(1, entries, 120, "0xglobalblock2");
     expect(store.getGlobalCheckpoint(1)).toEqual({ lastBlock: 120, lastBlockHash: "0xglobalblock2" });
     expect(store.listBorrowers(1, market.marketId, 20)).toHaveLength(1);
+    expect(store.listBorrowerMarketIds(1)).toEqual([market.marketId]);
     store.saveSnapshotMarketOffset(1, 12);
     expect(store.getSnapshotMarketOffset(1)).toBe(12);
     store.resetGlobalCheckpoint(1);
