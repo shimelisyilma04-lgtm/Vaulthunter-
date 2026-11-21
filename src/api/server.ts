@@ -16,7 +16,11 @@ import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../discovery/multichain-events.js";
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
+import { inspectAaveL2ReservePositions, estimateAaveL2PairNetProfit } from "../aave/l2-reserve-positions.js";
 import { inspectMorphoBluePosition } from "../morpho/blue.js";
+import { estimateMorphoBlueLiveProfitability } from "../morpho/live-profitability.js";
+import { simulateAaveL2DirectLiquidation } from "../aave/l2-fork-simulation.js";
+import { simulateMorphoBlueDirectLiquidation } from "../morpho/fork-simulation.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -33,8 +37,8 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
-  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain") return { key: "fork-simulation", max: 5 };
-  if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate") return { key: "opportunities", max: 5 };
+  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain" || pathname === "/api/v1/simulation/aave-liquidation/multichain" || pathname === "/api/v1/simulation/morpho-liquidation/multichain") return { key: "fork-simulation", max: 5 };
+  if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate" || pathname === "/api/v1/opportunities/multichain") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
   }
@@ -133,7 +137,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       res.end();
       return;
     }
-    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain"].includes(url.pathname);
+    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain", "/api/v1/simulation/aave-liquidation/multichain", "/api/v1/simulation/morpho-liquidation/multichain"].includes(url.pathname);
     if (req.method !== "GET" && !isForkSimulationPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -150,8 +154,8 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
     }
     try {
       if (isForkSimulationPost) {
-        if (!config.ETHEREUM_FORK_RPC_URL || !config.VAULTHUNTER_SIMULATION_API_TOKEN) {
-          send(res, 503, { error: "fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL and a strong VAULTHUNTER_SIMULATION_API_TOKEN. Use an isolated Anvil/Hardhat fork, never a mainnet transaction broadcaster." });
+        if (!config.VAULTHUNTER_SIMULATION_API_TOKEN) {
+          send(res, 503, { error: "simulation_token_not_configured", message: "Set a strong VAULTHUNTER_SIMULATION_API_TOKEN. Use an isolated Anvil/Hardhat fork, never a mainnet transaction broadcaster." });
           return;
         }
         const suppliedToken = req.headers.authorization?.startsWith("Bearer ")
@@ -174,6 +178,51 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
           return;
         }
+        if (url.pathname === "/api/v1/simulation/aave-liquidation/multichain" ||
+            url.pathname === "/api/v1/simulation/morpho-liquidation/multichain") {
+          const network = body.network;
+          const forkRpcUrl = network === "base" ? process.env.BASE_FORK_RPC_URL
+            : network === "arbitrum" ? process.env.ARBITRUM_FORK_RPC_URL : undefined;
+          if (!forkRpcUrl) {
+            send(res, 503, { error: "multichain_fork_not_configured", message: "Configure the private BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL Anvil fork for the requested network." });
+            return;
+          }
+          try {
+            if (url.pathname === "/api/v1/simulation/aave-liquidation/multichain") {
+              if ((network !== "base" && network !== "arbitrum") ||
+                  typeof body.collateralAsset !== "string" || typeof body.debtAsset !== "string" ||
+                  typeof body.borrower !== "string" || typeof body.debtToCover !== "string" ||
+                  typeof body.receiveAToken !== "boolean" || typeof body.from !== "string") {
+                send(res, 400, { error: "invalid_aave_l2_simulation_request", message: "Provide network, collateralAsset, debtAsset, borrower, positive debtToCover, receiveAToken and from." });
+                return;
+              }
+              const result = await simulateAaveL2DirectLiquidation(forkRpcUrl, {
+                network, collateralAsset: body.collateralAsset, debtAsset: body.debtAsset,
+                borrower: body.borrower, debtToCover: body.debtToCover,
+                receiveAToken: body.receiveAToken, from: body.from
+              }, config.AAVE_INDEXER_CONFIRMATIONS);
+              send(res, 200, { ...result, simulationOnly: true, transactionSubmitted: false });
+              return;
+            }
+            if ((network !== "base" && network !== "arbitrum") ||
+                typeof body.marketId !== "string" || typeof body.borrower !== "string" ||
+                typeof body.from !== "string" ||
+                (body.seizedAssets !== undefined && typeof body.seizedAssets !== "string") ||
+                (body.repaidShares !== undefined && typeof body.repaidShares !== "string")) {
+              send(res, 400, { error: "invalid_morpho_l2_simulation_request", message: "Provide network, marketId, borrower, from, and exactly one of seizedAssets or repaidShares." });
+              return;
+            }
+            const result = await simulateMorphoBlueDirectLiquidation(forkRpcUrl, {
+              network, marketId: body.marketId, borrower: body.borrower, from: body.from,
+              ...(typeof body.seizedAssets === "string" ? { seizedAssets: body.seizedAssets } : {}),
+              ...(typeof body.repaidShares === "string" ? { repaidShares: body.repaidShares } : {})
+            }, config.AAVE_INDEXER_CONFIRMATIONS);
+            send(res, 200, { ...result, simulationOnly: true, transactionSubmitted: false });
+          } catch (error) {
+            send(res, 422, { error: "protocol_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Direct-funded protocol liquidation simulation failed", transactionSubmitted: false });
+          }
+          return;
+        }
         if (url.pathname === "/api/v1/simulation/multichain") {
           const network = body.network;
           const target = network === "base"
@@ -185,7 +234,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             send(res, 503, { error: "multichain_fork_not_configured", message: "Set BASE_FORK_RPC_URL or ARBITRUM_FORK_RPC_URL for a private Anvil fork, and provide network=base or network=arbitrum." });
             return;
           }
-          if (typeof body.to !== "string" || typeof body.data !== "string" ||
+        if (typeof body.to !== "string" || typeof body.data !== "string" ||
               (body.value !== undefined && typeof body.value !== "string") ||
               (body.from !== undefined && typeof body.from !== "string")) {
             send(res, 400, { error: "invalid_simulation_request", message: "Provide to and data strings, with optional value and from strings." });
@@ -204,6 +253,10 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           return;
         }
         if (url.pathname === "/api/v1/simulation/aave-liquidation") {
+          if (!config.ETHEREUM_FORK_RPC_URL) {
+            send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
+            return;
+          }
           if (typeof body.collateralAsset !== "string" || typeof body.debtAsset !== "string" ||
               typeof body.user !== "string" || typeof body.debtToCover !== "string" ||
               typeof body.receiveAToken !== "boolean" || typeof body.from !== "string") {
@@ -211,7 +264,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
             return;
           }
           try {
-            const result = await simulateAaveLiquidationCall(config.ETHEREUM_FORK_RPC_URL, {
+            const result = await simulateAaveLiquidationCall(config.ETHEREUM_FORK_RPC_URL!, {
               collateralAsset: body.collateralAsset,
               debtAsset: body.debtAsset,
               user: body.user,
@@ -225,6 +278,10 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           }
           return;
         }
+        if (!config.ETHEREUM_FORK_RPC_URL) {
+          send(res, 503, { error: "ethereum_fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL for Ethereum fork simulations." });
+          return;
+        }
         if (typeof body.to !== "string" || typeof body.data !== "string" ||
             (body.value !== undefined && typeof body.value !== "string") ||
             (body.from !== undefined && typeof body.from !== "string")) {
@@ -232,7 +289,7 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           return;
         }
         try {
-          const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL, {
+          const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL!, {
             to: body.to, data: body.data,
             ...(typeof body.value === "string" ? { value: body.value } : {}),
             ...(typeof body.from === "string" ? { from: body.from } : {})
@@ -271,6 +328,140 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         });
         return;
       }
+      if (url.pathname === "/api/v1/opportunities/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: network.toUpperCase() + "_RPC_URL is not configured." });
+          return;
+        }
+        const gasUnitsRaw = url.searchParams.get("gasUnits");
+        const bpsValue = (key: string, fallback: number): number | null => {
+          const raw = url.searchParams.get(key);
+          const value = raw === null ? fallback : Number(raw);
+          return Number.isInteger(value) && value >= 0 && value < 10_000 ? value : null;
+        };
+        if (!gasUnitsRaw || !/^[1-9][0-9]{0,11}$/.test(gasUnitsRaw)) {
+          send(res, 400, { error: "gas_budget_required", message: "Provide gasUnits as a positive integer. Until a reviewed executor exists, this is a caller-supplied conservative gas budget, not measured transaction gas." });
+          return;
+        }
+        const slippageBps = bpsValue("slippageBps", 100);
+        const mevBudgetBps = bpsValue("mevBudgetBps", 100);
+        const builderFeeBps = bpsValue("builderFeeBps", 0);
+        const safetyBufferBps = bpsValue("safetyBufferBps", 500);
+        if (slippageBps === null || mevBudgetBps === null || builderFeeBps === null || safetyBufferBps === null) {
+          send(res, 400, { error: "invalid_cost_budget", message: "Slippage, MEV, builder and safety budgets must be integer basis points from 0 to 9999." });
+          return;
+        }
+        const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
+        const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
+        try {
+          const [discovery, morphoDiscovery] = await Promise.all([
+            discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks }),
+            discoverMorphoBlueCandidates({ network, rpcUrl, lookbackBlocks })
+          ]);
+          const rows: Array<Record<string, unknown>> = [];
+          for (let i = 0; i < discovery.borrowers.length && i < 40; i += 4) {
+            const batch = discovery.borrowers.slice(i, i + 4);
+            const snapshots = await Promise.all(batch.map(async (borrower) => {
+              try {
+                return await inspectAaveL2ReservePositions({ network, rpcUrl, borrower, confirmations: 1 });
+              } catch (error) {
+                return { borrower, error: error instanceof Error ? error.message : "reserve snapshot failed" };
+              }
+            }));
+            for (const snapshot of snapshots) {
+              if (!("pairs" in snapshot) || !Array.isArray(snapshot.pairs)) {
+                rows.push(snapshot as unknown as Record<string, unknown>);
+                continue;
+              }
+              for (const pair of snapshot.pairs as Array<import("../aave/l2-reserve-positions.js").AaveL2LiquidationPair>) {
+                if (!pair.dustRuleSatisfied || !pair.flashLoanAvailable || BigInt(pair.actualDebtToCover) <= 0n) continue;
+                const repay = BigInt(pair.actualDebtToCover);
+                const budget = (value: bigint, bps: number) => ((value * BigInt(bps)) + 9_999n) / 10_000n;
+                try {
+                  const estimate = await estimateAaveL2PairNetProfit({
+                    snapshot: snapshot as import("../aave/l2-reserve-positions.js").AaveL2ReserveSnapshot,
+                    pair,
+                    rpcUrl,
+                    gasUnits: gasUnitsRaw,
+                    slippageBps,
+                    mevBudgetDebtTokenUnits: budget(repay, mevBudgetBps).toString(),
+                    builderFeeDebtTokenUnits: budget(repay, builderFeeBps).toString(),
+                    safetyBufferBps
+                  });
+                  rows.push({
+                    protocol: "aave-v3",
+                    borrower: snapshot.user,
+                    collateralAsset: pair.collateralAsset,
+                    collateralSymbol: pair.collateralSymbol,
+                    debtAsset: pair.debtAsset,
+                    debtSymbol: pair.debtSymbol,
+                    debtToCover: pair.actualDebtToCover,
+                    collateralSeized: pair.grossCollateralSeized,
+                    protocolFeeCollateral: pair.protocolFeeCollateral,
+                    ...estimate
+                  });
+                } catch (error) {
+                  rows.push({ protocol: "aave-v3", borrower: snapshot.user, pair, error: error instanceof Error ? error.message : "profitability quote failed" });
+                }
+              }
+            }
+          }
+          for (let i = 0; i < morphoDiscovery.positions.length && i < 40; i += 4) {
+            const batch = morphoDiscovery.positions.slice(i, i + 4);
+            const snapshots = await Promise.all(batch.map(async ({ marketId, borrower }) => {
+              try {
+                return await inspectMorphoBluePosition({ network, rpcUrl, marketId, borrower });
+              } catch (error) {
+                return { marketId, borrower, error: error instanceof Error ? error.message : "Morpho snapshot failed" };
+              }
+            }));
+            for (const snapshot of snapshots) {
+              if (!("accruedTotalBorrowAssets" in snapshot)) {
+                rows.push({ protocol: "morpho-blue", ...snapshot } as Record<string, unknown>);
+                continue;
+              }
+              try {
+                const estimate = await estimateMorphoBlueLiveProfitability({
+                  snapshot: snapshot as import("../morpho/blue.js").MorphoPositionSnapshot,
+                  network, rpcUrl, gasUnits: gasUnitsRaw, slippageBps, mevBudgetBps,
+                  builderFeeBps, safetyBufferBps
+                });
+                rows.push(estimate as Record<string, unknown>);
+              } catch (error) {
+                rows.push({ protocol: "morpho-blue", marketId: snapshot.marketId, borrower: snapshot.borrower,
+                  observedBlock: snapshot.observedBlock, error: error instanceof Error ? error.message : "Morpho profitability quote failed" });
+              }
+            }
+          }
+          const ranked = rows.filter((row) => typeof row.estimatedNetProfitBaseCurrency === "string")
+            .sort((a, b) => {
+              const av = BigInt(String(a.estimatedNetProfitBaseCurrency));
+              const bv = BigInt(String(b.estimatedNetProfitBaseCurrency));
+              return av === bv ? 0 : av > bv ? -1 : 1;
+            });
+          send(res, 200, {
+            network,
+            source: "bounded-aave-and-morpho-discovery-plus-pinned-protocol-data-and-same-block-uniswap-quotes",
+            discovery: { aaveBorrowersFound: discovery.borrowers.length, morphoPositionsFound: morphoDiscovery.positions.length, completeness: discovery.completeness, fromBlock: discovery.fromBlock, toBlock: discovery.toBlock },
+            scannedAccounts: Math.min(discovery.borrowers.length, 40),
+            ranked,
+            unrankedOrFailed: rows.filter((row) => typeof row.estimatedNetProfitDebtTokenUnits !== "string"),
+            budgets: { gasUnits: gasUnitsRaw, slippageBps, mevBudgetBps, builderFeeBps, safetyBufferBps },
+            executionEnabled: false,
+            transactionSubmitted: false,
+            warning: "This is a read-only Aave/Morpho Base/Arbitrum screening rank. It uses reserve-specific Aave balances/configuration, eMode-aware prices/bonus, Morpho IRM-accrued debt, Aave flash premium/liquidity, same-block direct Uniswap V3 quotes, RPC gas price, and explicit caller budgets. It is not a complete transaction gas estimate because no audited flash-loan executor exists; multi-hop routes, L1 data fees, failed-transaction costs, exact scaled-token rounding and live MEV remain unverified. No signing or broadcasting."
+          });
+        } catch (error) {
+          send(res, 502, { error: "multichain_opportunity_scan_failed", message: error instanceof Error ? error.message : "Opportunity scan failed" });
+        }
+        return;
+      }
       if (url.pathname === "/api/v1/positions/multichain") {
         const network = url.searchParams.get("network");
         if (network !== "base" && network !== "arbitrum") {
@@ -293,9 +484,9 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           const batch = aaveDiscovery.borrowers.slice(i, i + 8);
           const rows = await Promise.all(batch.map(async (borrower) => {
             try {
-              return await inspectAaveL2Borrower({ network, rpcUrl, borrower });
+              return await inspectAaveL2ReservePositions({ network, rpcUrl, borrower, confirmations: 1 });
             } catch (error) {
-              return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
+              return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "reserve position refresh failed" };
             }
           })) as unknown as Array<Record<string, unknown>>;
           aaveRows.push(...rows);

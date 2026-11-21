@@ -10,7 +10,7 @@ Aave V3's documented close-factor rules are:
 - Up to 100% when health factor is at or below 0.95, or either selected position is below 2,000 base-currency units.
 - A partial liquidation must leave at least 1,000 base-currency units of both debt and collateral remaining.
 
-The current Aave estimate is deliberately conservative. It caps repayment by the close-factor ceiling, selected debt balance, and collateral available after the liquidation bonus. It rejects estimates that would violate the residual-balance check. Reserve-specific bonus, protocol fee, eMode treatment, and oracle values must come from the same market snapshot. Custom eMode price-source overrides are not supported by the existing adapter.
+The current Aave estimate is deliberately conservative. It caps repayment by the close-factor ceiling, selected debt balance, and collateral available after the liquidation bonus. It rejects estimates that would violate the residual-balance check. Reserve-specific bonus, protocol fee, eMode treatment, and oracle values must come from the same market snapshot. The current Aave Origin profile selects eMode bonus by collateral bitmap and uses ordinary reserve oracle prices for liquidation-pair sizing; legacy deployments with the old eMode priceSource ABI are detected and handled separately. Rounding follows current Origin source: floor max collateral, ceil debt amount when collateral caps the liquidation, ceil protocol fee, and half-up close-factor multiplication.
 
 Sources:
 - https://aave.com/faq
@@ -20,6 +20,8 @@ Sources:
 
 The pure TypeScript estimator mirrors the Morpho Blue core liquidation math for a caller-selected borrow-share repayment:
 
+- Accrual: `interest = floor(totalBorrowAssets * wTaylorCompounded(borrowRateView, elapsed) / 1e18)`, where Morpho core's Taylor function is the three-term sequence `x + x²/2 + x³/6` with fixed-point floor rounding at each intermediate step.
+- Share conversion: Morpho core uses virtual assets = 1 and virtual shares = 1e6. Borrower debt uses `toAssetsUp`; liquidation seizure sizing uses `toAssetsDown`.
 - Health check: `maxBorrow = floor(floor(collateralAssets * oraclePrice / 1e36) * LLTV / 1e18)`; a position is unhealthy when this is below the borrow assets converted with upward rounding.
 - Liquidation incentive factor: `min(1.15e18, floor(1e36 / (1e18 - floor(0.3e18 * (1e18 - LLTV) / 1e18))) )`.
 - Collateral seizure follows the core contract's rounding: borrow shares to assets down, multiply by LIF down, then convert loan value to collateral units down.
@@ -27,7 +29,7 @@ The pure TypeScript estimator mirrors the Morpho Blue core liquidation math for 
 
 Morpho Blue does not use a fixed close factor. The requested repayment share amount determines the partial or full repayment. If computed collateral seizure exceeds the borrower's collateral, the estimate is rejected as not collateral-sufficient.
 
-**Important integration boundary:** Morpho accrues interest inside its state-changing liquidation path. The current read-only position inspector exposes stored market totals and does not simulate interest accrual. Therefore the Morpho calculator is not wired into live opportunity ranking. Its market totals must be accrued and pinned to the exact simulation block before the result can be trusted even as a screening estimate.
+**Important integration boundary:** the read-only Morpho inspector now mirrors interest accrual using the market IRM's `borrowRateView`, the three-term Taylor formula and virtual-share conversion at a pinned block timestamp. This is source-matched screening logic, not yet a chain-state differential proof. Base and Arbitrum fork tests must still compare accrued balances and liquidation return values with Morpho core at the same timestamp and pinned block.
 
 Costs supplied to the Morpho calculator must all be denominated in loan-token base units. It does not convert token decimals to USD or prove that a DEX route, flash liquidity, callback, or transaction will succeed.
 
@@ -37,7 +39,7 @@ Sources:
 
 ## What still blocks an executable liquidation
 
-1. Accrued, pinned-block reserve/market state and exact debt/collateral conversions.
+1. Pinned-block protocol state and exact debt/collateral conversions, with fork differential tests against the actual deployed Base/Arbitrum implementations.
 2. A complete route quote that converts seized collateral to the repayment asset, including token decimals, route liquidity, fees and slippage.
 3. Flash-loan provider fee and availability, conservative gas-price conversion, builder/MEV budget, and a safety margin in one denomination.
 4. Full transaction-level fork simulation using a separately audited executor and callback path.

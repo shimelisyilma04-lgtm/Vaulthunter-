@@ -8,11 +8,13 @@ const POOL_ABI = [
 export const AAVE_V3_MARKETS = {
   base: {
     chainId: 8453,
-    addressesProvider: "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
+    addressesProvider: "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D",
+    expectedPool: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5"
   },
   arbitrum: {
     chainId: 42161,
-    addressesProvider: "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
+    addressesProvider: "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
+    expectedPool: "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
   }
 } as const;
 
@@ -50,6 +52,7 @@ export async function inspectAaveL2Borrower(args: {
     }
     const addressesProvider = new Contract(market.addressesProvider, PROVIDER_ABI, provider);
     const poolAddress = getAddress(await addressesProvider.getFunction("getPool")() as string);
+    if (poolAddress !== getAddress(market.expectedPool)) throw new Error("Aave Pool proxy does not match the pinned official deployment address for " + args.network + ".");
     const pool = new Contract(poolAddress, POOL_ABI, provider);
     const observedBlock = await provider.getBlockNumber();
     const account = await pool.getFunction("getUserAccountData")(

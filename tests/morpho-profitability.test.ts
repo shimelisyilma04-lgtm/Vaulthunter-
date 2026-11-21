@@ -8,9 +8,9 @@ function input(overrides: Record<string, string> = {}) {
   return {
     lltvWad: (86n * WAD / 100n).toString(),
     oraclePrice: SCALE.toString(),
-    totalBorrowAssets: "1000000",
-    totalBorrowShares: "1000000",
-    positionBorrowShares: "870000",
+    totalBorrowAssets: "999999",
+    totalBorrowShares: "1000000000000000000",
+    positionBorrowShares: "870000000000000000",
     collateralAssets: "1000000",
     flashLoanFee: "100",
     swapAndSlippageCost: "200",
@@ -52,14 +52,14 @@ describe("Morpho Blue liquidation estimate", () => {
   });
 
   it("supports a caller-selected partial share repayment", () => {
-    const result = estimateMorphoBlueLiquidation(input({ repaidShares: "100000" }));
-    expect(result.repaidShares).toBe("100000");
+    const result = estimateMorphoBlueLiquidation(input({ repaidShares: "100000000000000000" }));
+    expect(result.repaidShares).toBe("100000000000000000");
     expect(result.repaidAssets).toBe("100000");
   });
 
   it("rejects invalid LLTV, zero price and excessive repayment shares", () => {
     expect(() => estimateMorphoBlueLiquidation(input({ lltvWad: WAD.toString() }))).toThrow();
     expect(() => estimateMorphoBlueLiquidation(input({ oraclePrice: "0" }))).toThrow();
-    expect(() => estimateMorphoBlueLiquidation(input({ repaidShares: "870001" }))).toThrow();
+    expect(() => estimateMorphoBlueLiquidation(input({ repaidShares: "870000000000000001" }))).toThrow();
   });
 });

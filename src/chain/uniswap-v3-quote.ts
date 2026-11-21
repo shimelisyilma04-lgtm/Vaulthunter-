@@ -15,6 +15,7 @@ export async function quoteMultiChainUniswapV3(args: {
   tokenIn: string;
   tokenOut: string;
   amountIn: string;
+  blockNumber?: number;
 }): Promise<{
   network: string;
   chainId: number;
@@ -43,7 +44,7 @@ export async function quoteMultiChainUniswapV3(args: {
     if (network.chainId !== BigInt(deployment.chainId)) {
       throw new Error(`Expected chain ${deployment.chainId}; received ${network.chainId}`);
     }
-    const blockNumber = await provider.getBlockNumber();
+    const blockNumber = args.blockNumber ?? await provider.getBlockNumber();
     const quoter = new Contract(deployment.address, ABI, provider);
     const candidates = await Promise.all([100, 500, 3000, 10000].map(async (fee) => {
       try {

@@ -1,0 +1,26 @@
+name: Isolated Executor Harness
+
+on:
+  push:
+    branches: [feat/accrued-risk-and-profit-pipeline]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  executor-architecture:
+    name: Fork verification and isolated executor invariants
+    runs-on: ubuntu-latest
+    env:
+      BASE_RPC_URL: https://mainnet.base.org
+      ARBITRUM_RPC_URL: https://arb1.arbitrum.io/rpc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Verify deployed Base and Arbitrum protocol state on local forks
+        run: forge test --match-contract ProtocolForkVerificationTest -vvv
+      - name: Run isolated executor callback and rollback harness
+        run: forge test --match-contract ExecutorArchitectureTest -vvv
