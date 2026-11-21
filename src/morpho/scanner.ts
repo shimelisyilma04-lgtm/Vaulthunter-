@@ -49,6 +49,41 @@ async function getMorphoEthereumMarket(marketId: string): Promise<MorphoMarket> 
   return mapApiMarket(response.data);
 }
 
+type OnchainMarketParams = readonly [string, string, string, string, bigint];
+
+export function mapOnchainMorphoMarket(
+  marketId: string,
+  params: OnchainMarketParams,
+  fallbackCreationBlock: number
+): MorphoMarket {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(marketId)) {
+    throw new Error("Invalid Morpho market ID");
+  }
+  return {
+    chainId: 1,
+    marketId: marketId.toLowerCase(),
+    loanToken: getAddress(params[0]),
+    collateralToken: getAddress(params[1]),
+    oracleAddress: getAddress(params[2]),
+    irmAddress: getAddress(params[3]),
+    lltvWad: BigInt(params[4]).toString(),
+    // The global historical scan starts at the Morpho Blue deployment-era
+    // lower bound. This is a safe lower bound for legacy markets absent from
+    // the public market list; it does not advance or rewind the checkpoint.
+    creationBlock: fallbackCreationBlock
+  };
+}
+
+async function getMorphoEthereumMarketFromChain(
+  provider: JsonRpcProvider,
+  marketId: string,
+  fallbackCreationBlock: number
+): Promise<MorphoMarket> {
+  const morpho = new Contract(MORPHO_BLUE_ETHEREUM, MORPHO_ABI, provider);
+  const params = await morpho.getFunction("idToMarketParams")(marketId) as OnchainMarketParams;
+  return mapOnchainMorphoMarket(marketId, params, fallbackCreationBlock);
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error(`Morpho API returned ${response.status}`);
@@ -189,7 +224,10 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
       for (const marketId of borrowerMarketIds) {
         if (marketsById.has(marketId)) continue;
         try {
-          const market = await getMorphoEthereumMarket(marketId);
+          // The public Morpho market-detail endpoint is enterprise-only.
+          // Recover historical markets omitted from the first public list page
+          // directly from Morpho's immutable on-chain market parameters.
+          const market = await getMorphoEthereumMarketFromChain(provider, marketId, startBlock);
           marketsById.set(marketId, market);
           await store.upsertMarket(market);
         } catch { readFailures += 1; }
