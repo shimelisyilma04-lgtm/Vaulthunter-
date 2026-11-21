@@ -149,14 +149,21 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
         const borrowers = store.listBorrowers(1, market.marketId, config.MORPHO_SNAPSHOT_BATCH_SIZE);
         if (borrowers.length === 0) continue;
         try {
-          const [state, priceRaw, params, observedBlock] = await Promise.all([
+          const [state, params, observedBlock] = await Promise.all([
             morpho.getFunction("market")(market.marketId, { blockTag: head }) as Promise<readonly [bigint,bigint,bigint,bigint,bigint,bigint]>,
-            new Contract(market.oracleAddress, ORACLE_ABI, provider).getFunction("price")({ blockTag: head }) as Promise<bigint>,
             morpho.getFunction("idToMarketParams")(market.marketId, { blockTag: head }) as Promise<readonly [string,string,string,string,bigint]>,
             provider.getBlock(head)
           ]);
           if (!observedBlock) throw new Error("Unable to resolve pinned block timestamp");
-          const price = BigInt(priceRaw);
+          const oracleAddress = getAddress(params[2]);
+          const irmAddress = getAddress(params[3]);
+          const lltvWad = BigInt(params[4]).toString();
+          if (oracleAddress.toLowerCase() !== market.oracleAddress.toLowerCase() ||
+              irmAddress.toLowerCase() !== market.irmAddress.toLowerCase() ||
+              lltvWad !== BigInt(market.lltvWad).toString()) {
+            throw new Error("Morpho API market configuration does not match onchain immutable parameters");
+          }
+          const price = BigInt(await new Contract(oracleAddress, ORACLE_ABI, provider).getFunction("price")({ blockTag: head }));
           if (price === 0n) continue;
           const marketState = {
             totalSupplyAssets: state[0], totalSupplyShares: state[1],
@@ -165,9 +172,9 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
           };
           const elapsed = BigInt(observedBlock.timestamp) - BigInt(state[4]);
           if (elapsed < 0n) throw new Error("Market lastUpdate is later than pinned block timestamp");
-          const rate = market.irmAddress.toLowerCase() === "0x0000000000000000000000000000000000000000"
+          const rate = irmAddress.toLowerCase() === "0x0000000000000000000000000000000000000000"
             ? 0n
-            : BigInt(await new Contract(market.irmAddress, IRM_ABI, provider).getFunction("borrowRateView")({
+            : BigInt(await new Contract(irmAddress, IRM_ABI, provider).getFunction("borrowRateView")({
                 loanToken: params[0], collateralToken: params[1], oracle: params[2], irm: params[3], lltv: params[4]
               }, marketState, { blockTag: head }));
           const totalBorrowShares = BigInt(state[3]);
@@ -183,12 +190,12 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStore): Pro
               });
               const debtAssets = debt.borrowerDebtAssetsUp;
               const collateralValue = collateralAssets * price / (10n ** 36n);
-              const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(market.lltvWad) / debtAssets;
+              const healthFactor = debtAssets === 0n ? (2n ** 255n) : collateralValue * BigInt(lltvWad) / debtAssets;
               store.saveSnapshot({
                 chainId: 1, marketId: market.marketId, address: borrower.address, observedBlock: head,
                 borrowShares: borrowShares.toString(), debtAssets: debtAssets.toString(),
                 collateralAssets: collateralAssets.toString(), oraclePrice: price.toString(),
-                lltvWad: market.lltvWad, healthFactorWad: healthFactor.toString()
+                lltvWad, healthFactorWad: healthFactor.toString()
               });
               positionsChecked += 1;
               if (debtAssets > 0n && healthFactor < WAD) candidates.push({
