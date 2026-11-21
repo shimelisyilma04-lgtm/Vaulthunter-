@@ -37,6 +37,9 @@ export async function estimateMorphoBlueLiveProfitability(args: {
   safetyBufferBps: number;
 }): Promise<Record<string, unknown>> {
   const snapshot = args.snapshot;
+  const expectedChainId = args.network === "base" ? 8453 : 42161;
+  if (snapshot.chainId !== expectedChainId) throw new Error("Morpho snapshot network does not match the requested quote network");
+  if (snapshot.elapsedSeconds < 0 || !Number.isSafeInteger(snapshot.elapsedSeconds)) throw new Error("Morpho snapshot elapsedSeconds is invalid");
   const gasUnits = unsigned(args.gasUnits, "gasUnits");
   const slippageBps = validateBps(args.slippageBps, "slippageBps");
   const mevBps = validateBps(args.mevBudgetBps, "mevBudgetBps");
@@ -89,6 +92,7 @@ export async function estimateMorphoBlueLiveProfitability(args: {
         warnings: ["No direct Uniswap V3 pool returned a quote. Multi-hop routing is not yet included."]
       };
     }
+    if (quote.blockNumber !== snapshot.observedBlock) throw new Error("DEX quote block does not match the Morpho liquidation snapshot block");
     const quotedOut = unsigned(quote.amountOut, "quote amount out");
     const debtUnit = 10n ** BigInt(loanDecimals);
     const debtPrice = unsigned(flash.assetPriceBase, "loan token oracle price");
