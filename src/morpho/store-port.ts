@@ -24,6 +24,7 @@ export interface MorphoStorePort {
   listBorrowerMarketIds(chainId: number): MaybePromise<string[]>;
   getMonitorStats(chainId: number): MaybePromise<MorphoMonitorStats>;
   listLiquidationCandidates(chainId: number, limit: number): MaybePromise<MorphoCandidate[]>;
+  listRiskPositions(chainId: number, limit: number): MaybePromise<MorphoCandidate[]>;
   saveSnapshot(input: {
     chainId: number; marketId: string; address: string; observedBlock: number;
     borrowShares: string; debtAssets: string; collateralAssets: string;
