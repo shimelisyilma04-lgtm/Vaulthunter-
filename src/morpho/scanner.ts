@@ -118,8 +118,10 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
     }
     let nextBlock = checkpoint ? checkpoint.lastBlock + 1 : startBlock;
     let marketBatchesIndexed = 0, borrowersDiscovered = 0, readFailures = 0;
+    let batchBlocks = config.MORPHO_INDEXER_BATCH_BLOCKS;
+    const discoveredMarketIds = new Set<string>();
     while (nextBlock <= safeHead && marketBatchesIndexed < config.MORPHO_INDEXER_MAX_BATCHES_PER_PASS) {
-      const toBlock = Math.min(safeHead, nextBlock + config.MORPHO_INDEXER_BATCH_BLOCKS - 1);
+      const toBlock = Math.min(safeHead, nextBlock + batchBlocks - 1);
       let logs: Log[];
       try {
         logs = await provider.getLogs({
@@ -128,11 +130,16 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
         });
       } catch {
         readFailures += 1;
+        if (batchBlocks > 10) {
+          batchBlocks = Math.max(10, Math.floor(batchBlocks / 2));
+          continue;
+        }
         break;
       }
       const block = await provider.getBlock(toBlock);
       if (!block?.hash) throw new Error(`Cannot verify Morpho block ${toBlock}`);
       const entries = decodeBorrowerEvents(logs);
+      for (const entry of entries) discoveredMarketIds.add(entry.marketId);
       await store.saveGlobalBatch(1, entries, toBlock, block.hash);
       borrowersDiscovered += entries.length;
       marketBatchesIndexed += 1;
@@ -146,10 +153,21 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
     let marketsRefreshed = 0, positionsChecked = 0;
     const candidates: MorphoScanResult["candidates"] = [];
 
-    if (indexerCaughtUp) {
+    {
+      // Refresh discovered borrowers during the historical backfill; waiting for the
+      // full chain scan would leave every position snapshot empty for hours or days.
       const offset = (await store.getSnapshotMarketOffset(1)) % markets.length;
       const count = Math.min(config.MORPHO_MARKETS_TO_REFRESH_PER_PASS, markets.length);
-      const selected = Array.from({ length: count }, (_, i) => markets[(offset + i) % markets.length]!);
+      const selectedById = new Map<string, MorphoMarket>();
+      for (const marketId of discoveredMarketIds) {
+        const market = markets.find((item) => item.marketId === marketId);
+        if (market) selectedById.set(marketId, market);
+      }
+      for (let i = 0; i < markets.length && selectedById.size < count; i += 1) {
+        const market = markets[(offset + i) % markets.length]!;
+        selectedById.set(market.marketId, market);
+      }
+      const selected = [...selectedById.values()].slice(0, count);
       const morpho = new Contract(MORPHO_BLUE_ETHEREUM, MORPHO_ABI, provider);
       for (const market of selected) {
         const borrowers = await store.listBorrowers(1, market.marketId, config.MORPHO_SNAPSHOT_BATCH_SIZE);
