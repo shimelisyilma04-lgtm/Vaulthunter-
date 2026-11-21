@@ -104,3 +104,8 @@ Do not enable signing, broadcasting, or an execution switch until all of the fol
 5. Gas is measured from the complete transaction on each chain, including Base L1 data fees.
 6. An independent smart-contract security reviewer reviews the production executor and callback code; a separate audit is completed before meaningful funds are exposed.
 7. A human operator verifies the plan and limits on a fresh block. No automatic execution is enabled by these tests.
+
+
+## Aave close-factor verification note
+
+The Base/Arbitrum adapter selects the close factor using total account debt in base currency, not the selected reserve balances. A 50% cap applies only when health factor is above 0.95 and total account debt is strictly greater than the configured threshold; otherwise the cap is 100%. Unit tests cover below/equal/above-threshold cases. This remains subject to fork differential verification against the deployed implementation.
