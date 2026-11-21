@@ -16,6 +16,7 @@ import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
 import { discoverMultichainCandidates, discoverMorphoBlueCandidates } from "../discovery/multichain-events.js";
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
+import { inspectAaveL2ReservePositions, estimateAaveL2PairNetProfit } from "../aave/l2-reserve-positions.js";
 import { inspectMorphoBluePosition } from "../morpho/blue.js";
 
 const CHAIN_ID = 1;
@@ -293,9 +294,9 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
           const batch = aaveDiscovery.borrowers.slice(i, i + 8);
           const rows = await Promise.all(batch.map(async (borrower) => {
             try {
-              return await inspectAaveL2Borrower({ network, rpcUrl, borrower });
+              return await inspectAaveL2ReservePositions({ network, rpcUrl, borrower, confirmations: 1 });
             } catch (error) {
-              return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "position refresh failed" };
+              return { protocol: "aave-v3", network, borrower, error: error instanceof Error ? error.message : "reserve position refresh failed" };
             }
           })) as unknown as Array<Record<string, unknown>>;
           aaveRows.push(...rows);
