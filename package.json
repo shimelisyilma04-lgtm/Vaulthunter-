@@ -17,7 +17,9 @@
     "rpc:check": "tsx src/index.ts",
     "aave:scan": "tsx src/aave/scan.ts",
     "aave:index:once": "tsx src/aave/indexer-cli.ts --once",
-    "aave:index": "tsx src/aave/indexer-cli.ts"
+    "aave:index": "tsx src/aave/indexer-cli.ts",
+    "morpho:scan:once": "tsx src/morpho/scan.ts --once",
+    "morpho:scan": "tsx src/morpho/scan.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
