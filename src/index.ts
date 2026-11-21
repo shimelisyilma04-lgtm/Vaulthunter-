@@ -1,5 +1,5 @@
 import pino from "pino";
-import { config, rpcConfigError } from "./config.js";
+import { config, morphoRpcConfigError, rpcConfigError } from "./config.js";
 import { AaveStore } from "./aave/store-factory.js";
 import { runAaveIndexerPass } from "./aave/indexer.js";
 import { startHttpServer } from "./api/server.js";
@@ -80,8 +80,12 @@ async function runMorphoIndexerLoop(): Promise<void> {
     logger.error("Morpho indexing requires DATABASE_URL in production; refusing ephemeral SQLite storage");
     return;
   }
-  if (!config.ETHEREUM_RPC_URL) {
-    logger.warn("ETHEREUM_RPC_URL is missing; Morpho indexing is paused");
+  const morphoRpcUrl = config.MORPHO_RPC_URL ?? config.ETHEREUM_RPC_URL;
+  if (morphoRpcConfigError) {
+    logger.error({ message: morphoRpcConfigError }, "Morpho RPC configuration is invalid; falling back to ETHEREUM_RPC_URL");
+  }
+  if (!morphoRpcUrl) {
+    logger.warn("MORPHO_RPC_URL or ETHEREUM_RPC_URL is missing; Morpho indexing is paused");
     return;
   }
   if (!morphoStore) {
@@ -92,12 +96,13 @@ async function runMorphoIndexerLoop(): Promise<void> {
     maxMarkets: config.MORPHO_MAX_MARKETS,
     batchBlocks: config.MORPHO_INDEXER_BATCH_BLOCKS,
     maxBatchesPerPass: config.MORPHO_INDEXER_MAX_BATCHES_PER_PASS,
+    rpcSource: config.MORPHO_RPC_URL ? "MORPHO_RPC_URL" : "ETHEREUM_RPC_URL",
     executionEnabled: false
   }, "Starting Morpho Blue Ethereum indexer in read-only mode");
   try {
     while (!stopping) {
       try {
-        const result = await runMorphoScanPass(config.ETHEREUM_RPC_URL, morphoStore);
+        const result = await runMorphoScanPass(morphoRpcUrl, morphoStore);
         logger.info({ ...result, candidates: undefined }, "Morpho Blue indexer pass completed");
         for (const candidate of result.candidates) {
           logger.warn({
