@@ -12,7 +12,7 @@ import {
   AAVE_V3_ETHEREUM_ADDRESSES_PROVIDER,
   ADDRESSES_PROVIDER_ABI
 } from "./abi.js";
-import { AaveStore, type StoredBorrowEvent } from "./store.js";
+import { AaveStore, type StoredBorrowEvent, type StoredLiquidationCandidate } from "./store.js";
 
 const protocol = "aave-v3";
 const chainId = 1;
@@ -27,6 +27,7 @@ export interface IndexerPassResult {
   knownBorrowers: number;
   snapshotsUpdated: number;
   accountReadFailures: number;
+  candidates: StoredLiquidationCandidate[];
   reorgDetected: boolean;
   caughtUp: boolean;
   database: {
@@ -216,6 +217,7 @@ export async function runAaveIndexerPass(
       knownBorrowers: borrowers.length,
       snapshotsUpdated,
       accountReadFailures,
+      candidates: store.listCandidates(chainId, poolAddress, 100),
       reorgDetected,
       caughtUp,
       database: {
