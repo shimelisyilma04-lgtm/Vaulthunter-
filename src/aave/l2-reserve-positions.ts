@@ -404,9 +404,11 @@ export async function inspectAaveL2ReservePositions(args: {
         });
       }
     }
-    const blockPriceSourceWarning = userEModeCategory > 0 && eModeData?.priceSource !== ZERO
-      ? eModeData?.profile === "bitmap" ? "Aave Origin eMode bitmap profile: ordinary reserve oracle prices are used for pair sizing and the category liquidation bonus is applied only to reserves in the collateral bitmap." : "Legacy eMode profile: the category price source is applied to debt and matching-category collateral prices."
-      : "";
+    const blockPriceSourceWarning = eModeData?.profile === "bitmap"
+      ? "Aave Origin eMode bitmap profile: ordinary reserve oracle prices are used for pair sizing and the category liquidation bonus is applied only to reserves in the collateral bitmap."
+      : eModeData?.profile === "legacy-price-source"
+        ? "Legacy eMode profile: the category price source is applied to debt and matching-category collateral prices."
+        : "";
     return {
       network: args.network, chainId: deployment.chainId, pool: poolAddress, oracle: oracleAddress,
       user: borrower, observedBlock, blockTimestamp: block.timestamp,
