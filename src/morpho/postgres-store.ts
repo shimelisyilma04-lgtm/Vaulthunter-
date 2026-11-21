@@ -111,6 +111,25 @@ export class PostgresMorphoStore implements MorphoStorePort {
     } finally { client.release(); }
   }
 
+  async saveDiscoveredBorrowers(chainId: number, entries: Array<{marketId:string;address:string}>): Promise<void> {
+    await this.ready;
+    for (let offset = 0; offset < entries.length; offset += 500) {
+      const batch = entries.slice(offset, offset + 500);
+      if (batch.length === 0) continue;
+      const values = batch.map((_, index) => {
+        const base = index * 3;
+        return `(${base + 1},${base + 2},${base + 3})`;
+      }).join(",");
+      const params = batch.flatMap((entry) => [
+        chainId, entry.marketId.toLowerCase(), entry.address.toLowerCase()
+      ]);
+      await this.pool.query(
+        `INSERT INTO morpho_borrowers(chain_id,market_id,address) VALUES ${values} ON CONFLICT DO NOTHING`,
+        params
+      );
+    }
+  }
+
   async getSnapshotMarketOffset(chainId: number): Promise<number> {
     await this.ready;
     const r = await this.pool.query("SELECT snapshot_market_offset FROM morpho_scan_state WHERE chain_id=$1",[chainId]);
