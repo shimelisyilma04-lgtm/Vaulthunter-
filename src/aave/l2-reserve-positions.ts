@@ -13,10 +13,15 @@ const POOL_ABI = [
   "function getReservesList() view returns (address[])",
   "function getReserveData(address) view returns (tuple(tuple(uint256 data) configuration,uint128 liquidityIndex,uint128 currentLiquidityRate,uint128 variableBorrowIndex,uint128 currentVariableBorrowRate,uint128 currentStableBorrowRate,uint40 lastUpdateTimestamp,uint16 id,address aTokenAddress,address stableDebtTokenAddress,address variableDebtTokenAddress,address interestRateStrategyAddress,uint128 accruedToTreasury,uint128 unbacked,uint128 isolationModeTotalDebt))",
   "function getUserEMode(address) view returns (uint256)",
-  "function getEModeCategoryData(uint8) view returns (uint16 ltv,uint16 liquidationThreshold,uint16 liquidationBonus,address priceSource,string label)",
   "function FLASHLOAN_PREMIUM_TOTAL() view returns (uint128)",
   "function MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD() view returns (uint256)",
   "function MIN_LEFTOVER_BASE() view returns (uint256)"
+] as const;
+const POOL_EMODE_BITMAP_ABI = [
+  "function getEModeCategoryData(uint8) view returns (uint16 ltv,uint16 liquidationThreshold,uint16 liquidationBonus,uint128 collateralBitmap,uint128 borrowableBitmap,string label)"
+] as const;
+const POOL_EMODE_LEGACY_ABI = [
+  "function getEModeCategoryData(uint8) view returns (uint16 ltv,uint16 liquidationThreshold,uint16 liquidationBonus,address priceSource,string label)"
 ] as const;
 const ORACLE_ABI = [
   "function getAssetPrice(address) view returns (uint256)",
@@ -54,6 +59,10 @@ export function aavePercentDivFloor(value: bigint, percentage: bigint): bigint {
   if (percentage === 0n) throw new Error("Liquidation bonus must be positive");
   return value * BPS / percentage;
 }
+export function aavePercentDivCeil(value: bigint, percentage: bigint): bigint {
+  if (percentage === 0n) throw new Error("Liquidation bonus must be positive");
+  return ceilDiv(value * BPS, percentage);
+}
 export function aaveL2CloseFactorBps(
   healthFactorWad: bigint,
   debtReserveBase: bigint,
@@ -65,7 +74,7 @@ export function aaveL2CloseFactorBps(
     debtReserveBase >= minBaseThreshold &&
     collateralReserveBase >= minBaseThreshold ? 5_000n : 10_000n;
 }
-export function aaveL2UsesEModePrice(
+export function aaveL2UsesLegacyEModePrice(
   userCategory: number,
   reserveCategory: number,
   priceSource: string,
@@ -73,6 +82,14 @@ export function aaveL2UsesEModePrice(
 ): boolean {
   return userCategory > 0 && priceSource.toLowerCase() !== ZERO &&
     (!asCollateral || reserveCategory === userCategory);
+}
+export function aaveL2UsesEModeCollateralBitmap(
+  userCategory: number,
+  reserveId: number,
+  collateralBitmap: bigint
+): boolean {
+  return userCategory > 0 && reserveId >= 0 && reserveId < 128 &&
+    (collateralBitmap & (1n << BigInt(reserveId))) !== 0n;
 }
 export function aaveL2DustSatisfied(
   debtRemainingBase: bigint,
@@ -147,7 +164,7 @@ export interface AaveL2ReserveSnapshot {
   healthFactorWad: string;
   liquidationEligible: boolean;
   userEModeCategory: number;
-  eModeCategory: { liquidationBonusBps: string; priceSource: string } | null;
+  eModeCategory: { profile: "bitmap" | "legacy-price-source"; liquidationBonusBps: string; collateralBitmap?: string; priceSource?: string; label: string } | null;
   flashLoanPremiumBps: string;
   minBaseMaxCloseFactorThreshold: string | null;
   minLeftoverBase: string | null;
@@ -219,16 +236,33 @@ export async function inspectAaveL2ReservePositions(args: {
         minLeftover = minBaseThreshold / 2n;
       }
     }
-    let eModeData: { liquidationBonusBps: string; priceSource: string } | null = null;
+    let eModeData:
+      | { profile: "bitmap"; liquidationBonusBps: string; collateralBitmap: string; label: string }
+      | { profile: "legacy-price-source"; liquidationBonusBps: string; priceSource: string; label: string }
+      | null = null;
     if (userEModeCategory > 0) {
       try {
-        const data = await pool.getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
+        const eModePool = new Contract(poolAddress, POOL_EMODE_BITMAP_ABI, provider);
+        const data = await eModePool.getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
         eModeData = {
+          profile: "bitmap",
           liquidationBonusBps: asBigInt(data[2], "eMode liquidation bonus").toString(),
-          priceSource: getAddress(String(data[3]))
+          collateralBitmap: asBigInt(data[3], "eMode collateral bitmap").toString(),
+          label: String(data[5])
         };
       } catch {
-        throw new Error("User has an eMode category but this Pool does not expose its category parameters; reserve-specific liquidation estimates are withheld.");
+        try {
+          const legacyPool = new Contract(poolAddress, POOL_EMODE_LEGACY_ABI, provider);
+          const data = await legacyPool.getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
+          eModeData = {
+            profile: "legacy-price-source",
+            liquidationBonusBps: asBigInt(data[2], "legacy eMode liquidation bonus").toString(),
+            priceSource: getAddress(String(data[3])),
+            label: String(data[4])
+          };
+        } catch {
+          throw new Error("User has an eMode category but neither the Aave Origin bitmap ABI nor the legacy eMode ABI could be verified; pair estimates are withheld.");
+        }
       }
     }
     const reserves: AaveL2ReservePosition[] = [];
@@ -287,9 +321,12 @@ export async function inspectAaveL2ReservePositions(args: {
     }
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
-      if (eModeData && aaveL2UsesEModePrice(userEModeCategory, asset.eModeCategory, eModeData.priceSource, asCollateral)) {
-        return asBigInt(await oracle.getFunction("getAssetPrice").staticCall(eModeData.priceSource, { blockTag: observedBlock }), "eMode price");
+      if (eModeData?.profile === "legacy-price-source" &&
+          aaveL2UsesLegacyEModePrice(userEModeCategory, asset.eModeCategory, eModeData.priceSource, asCollateral)) {
+        return asBigInt(await oracle.getFunction("getAssetPrice").staticCall(eModeData.priceSource, { blockTag: observedBlock }), "legacy eMode price");
       }
+      // Aave Origin's bitmap profile uses the ordinary reserve oracle prices in
+      // LiquidationLogic; eMode affects account health and the selected bonus.
       return BigInt(asset.priceBase);
     };
     const pairs: AaveL2LiquidationPair[] = [];
@@ -302,8 +339,11 @@ export async function inspectAaveL2ReservePositions(args: {
           priceFor(collateral, true), priceFor(debt, false)
         ]);
         if (collateralPrice === 0n || debtPrice === 0n) continue;
-        const bonus = userEModeCategory > 0 && eModeData && collateral.eModeCategory === userEModeCategory
-          ? BigInt(eModeData.liquidationBonusBps)
+        const eModeCollateral = eModeData?.profile === "bitmap"
+          ? aaveL2UsesEModeCollateralBitmap(userEModeCategory, collateral.reserveId, BigInt(eModeData.collateralBitmap))
+          : eModeData?.profile === "legacy-price-source" && collateral.eModeCategory === userEModeCategory;
+        const bonus = eModeCollateral
+          ? BigInt(eModeData!.liquidationBonusBps)
           : BigInt(collateral.liquidationBonusBps);
         if (bonus <= BPS) continue;
         const collateralUnit = 10n ** BigInt(collateral.decimals);
@@ -326,7 +366,7 @@ export async function inspectAaveL2ReservePositions(args: {
         if (maxCollateral > BigInt(collateral.collateralBalance)) {
           seized = BigInt(collateral.collateralBalance);
           const debtValue = collateralPrice * seized * debtUnit / (debtPrice * collateralUnit);
-          actualDebt = aavePercentDivFloor(debtValue, bonus);
+          actualDebt = aavePercentDivCeil(debtValue, bonus);
         }
         const bonusCollateral = seized - aavePercentDivFloor(seized, bonus);
         const protocolFee = aavePercentMulCeil(bonusCollateral, BigInt(collateral.liquidationProtocolFeeBps));
@@ -364,7 +404,7 @@ export async function inspectAaveL2ReservePositions(args: {
       }
     }
     const blockPriceSourceWarning = userEModeCategory > 0 && eModeData?.priceSource !== ZERO
-      ? "eMode priceSource override was applied to debt prices and matching-category collateral prices, matching Aave eMode liquidation logic."
+      ? eModeData?.profile === "bitmap" ? "Aave Origin eMode bitmap profile: ordinary reserve oracle prices are used for pair sizing and the category liquidation bonus is applied only to reserves in the collateral bitmap." : "Legacy eMode profile: the category price source is applied to debt and matching-category collateral prices."
       : "";
     return {
       network: args.network, chainId: deployment.chainId, pool: poolAddress, oracle: oracleAddress,
