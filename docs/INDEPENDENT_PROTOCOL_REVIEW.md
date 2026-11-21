@@ -43,14 +43,14 @@ Primary references:
 Verified source rules:
 1. The V3.3+ 50% close-factor condition is evaluated against the **selected debt reserve's debt value and selected collateral reserve's collateral value**, each compared with `MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD`, plus the health-factor threshold. It is not simply `totalDebtBase > threshold`.
 2. When the condition applies, the 50% cap is half the user's **total account debt in base currency**, but it only caps the selected debt reserve when that reserve debt exceeds the cap.
-3. eMode price-source behavior is asymmetric: when the user has an active eMode category and a non-zero eMode price source, debt prices use that source; collateral prices use it only when the collateral reserve is in the user's eMode category. The eMode liquidation bonus likewise applies only to matching-category collateral.
-4. The current Aave Origin 3.7 rounding specification uses floor for max collateral multiplication, floor for debt amount division when collateral is capped, and ceil for the protocol fee. The close-factor half-debt calculation remains half-up.
+3. Current Aave Origin uses eMode collateral bitmaps to select the category liquidation bonus. In its liquidation pair calculation it obtains collateral and debt prices from the ordinary reserve oracle; eMode-adjusted account health is calculated separately by GenericLogic. The older legacy eMode ABI exposed a priceSource and is handled as a separate compatibility profile, never conflated with the bitmap profile.
+4. Current Aave Origin liquidation arithmetic uses floor for max-collateral multiplication, ceil for debt amount division when collateral is capped, and ceil for the protocol fee. The close-factor half-debt calculation uses PercentageMath half-up rounding. Bonus-collateral calculation uses floor division.
 5. The dust guard is evaluated only when the liquidation leaves both debt and collateral. Both remaining values must be at least `MIN_LEFTOVER_BASE`; collateral remaining is calculated after the gross collateral consumption (liquidator amount plus protocol fee).
 6. Aave `flashLoanSimple` transfers the asset, calls `executeOperation`, then pulls amount plus premium. The receiver must verify the caller/initiator and approve the Pool for the exact repayment plus fee.
 
 Changes made in this branch:
 - Close-factor helper now checks the selected reserve debt and collateral base values, and returns no sizing when the Pool's minimum threshold cannot be read.
-- eMode pricing now applies to all debt reserves but only matching-category collateral reserves.
+- eMode now supports the current collateral-bitmap ABI and a separate legacy price-source ABI.
 - Liquidation bonus/protocol fee arithmetic now follows the explicit floor/floor/ceil rounding profile in the current Origin 3.7 source.
 - Deterministic unit tests cover the reserve-specific threshold and eMode cases, as well as rounding directions.
 
