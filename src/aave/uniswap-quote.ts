@@ -1,10 +1,8 @@
 import { Contract, JsonRpcProvider, getAddress, solidityPacked } from "ethers";
+import { UNISWAP_V3_QUOTER_V2_ABI } from "../chain/uniswap-v3-quote.js";
 
 const QUOTER_V2 = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
-const QUOTER_ABI = [
-  "function quoteExactInputSingle((address tokenIn,address tokenOut,uint24 fee,uint256 amountIn,uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)",
-  "function quoteExactInput(bytes path,uint256 amountIn) returns (uint256 amountOut,uint160[] sqrtPriceX96AfterList,uint32[] initializedTicksCrossedList,uint256 gasEstimate)"
-] as const;
+const QUOTER_ABI = UNISWAP_V3_QUOTER_V2_ABI;
 
 export interface UniswapV3QuoteInput {
   tokenIn: string;
