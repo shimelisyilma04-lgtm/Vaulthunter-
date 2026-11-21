@@ -5,8 +5,13 @@ import { z } from "zod";
 // RPC value must not prevent the read-only dashboard/API from starting.
 const rawRpcUrl = process.env.ETHEREUM_RPC_URL?.trim().replace(/^["']|["']$/g, "");
 const rpcUrlResult = rawRpcUrl ? z.string().url().safeParse(rawRpcUrl) : null;
+const rawMorphoRpcUrl = process.env.MORPHO_RPC_URL?.trim().replace(/^["']|["']$/g, "");
+const morphoRpcUrlResult = rawMorphoRpcUrl ? z.string().url().safeParse(rawMorphoRpcUrl) : null;
 export const rpcConfigError = rawRpcUrl && !rpcUrlResult?.success
   ? "ETHEREUM_RPC_URL is not a valid absolute URL. Use the provider's full HTTPS endpoint."
+  : null;
+export const morphoRpcConfigError = rawMorphoRpcUrl && !morphoRpcUrlResult?.success
+  ? "MORPHO_RPC_URL is not a valid absolute URL. Use an archive-capable Ethereum HTTPS endpoint."
   : null;
 
 const envSchema = z.object({
@@ -14,6 +19,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   ETHEREUM_RPC_URL: z.string().url().optional(),
+  MORPHO_RPC_URL: z.string().url().optional(),
   ETHEREUM_FORK_RPC_URL: z.preprocess((value) => value === "" ? undefined : value, z.string().url().optional()),
   VAULTHUNTER_SIMULATION_API_TOKEN: z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().min(32).optional()),
   DATABASE_URL: z.string().url().optional(),
@@ -52,7 +58,8 @@ const parsed = envSchema.safeParse({
     process.env.AAVE_SUBGRAPH_API_KEY ??
     process.env.GRAPH_API_KEY ??
     process.env.THE_GRAPH_API_KEY,
-  ETHEREUM_RPC_URL: rpcUrlResult?.success ? rpcUrlResult.data : undefined
+  ETHEREUM_RPC_URL: rpcUrlResult?.success ? rpcUrlResult.data : undefined,
+  MORPHO_RPC_URL: morphoRpcUrlResult?.success ? morphoRpcUrlResult.data : undefined
 });
 
 if (!parsed.success) {
