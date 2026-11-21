@@ -31,7 +31,7 @@ npm run aave:index:once
 npm run aave:index
 ```
 
-The SQLite database defaults to `./data/vaulthunter.sqlite`. Use a persistent disk for hosted deployments. See [historical indexer setup](docs/AAVE_INDEXER.md).
+The SQLite database defaults to `./data/vaulthunter.sqlite`. Use a persistent disk for hosted deployments. When borrower snapshots are refreshed, the indexer logs accounts with nonzero debt and health factor below 1, ranked by lowest health factor. Each result includes its observed block so stale candidates can be rejected. See [historical indexer setup](docs/AAVE_INDEXER.md).
 
 ## Other commands
 
