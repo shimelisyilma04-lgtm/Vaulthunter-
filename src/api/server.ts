@@ -272,6 +272,110 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
         });
         return;
       }
+      if (url.pathname === "/api/v1/opportunities/multichain") {
+        const network = url.searchParams.get("network");
+        if (network !== "base" && network !== "arbitrum") {
+          send(res, 400, { error: "invalid_network", message: "Use network=base or network=arbitrum." });
+          return;
+        }
+        const rpcUrl = network === "base" ? process.env.BASE_RPC_URL : process.env.ARBITRUM_RPC_URL;
+        if (!rpcUrl) {
+          send(res, 503, { error: "rpc_not_configured", message: network.toUpperCase() + "_RPC_URL is not configured." });
+          return;
+        }
+        const gasUnitsRaw = url.searchParams.get("gasUnits");
+        const bpsValue = (key: string, fallback: number): number | null => {
+          const raw = url.searchParams.get(key);
+          const value = raw === null ? fallback : Number(raw);
+          return Number.isInteger(value) && value >= 0 && value < 10_000 ? value : null;
+        };
+        if (!gasUnitsRaw || !/^[1-9][0-9]{0,11}$/.test(gasUnitsRaw)) {
+          send(res, 400, { error: "gas_budget_required", message: "Provide gasUnits as a positive integer. Until a reviewed executor exists, this is a caller-supplied conservative gas budget, not measured transaction gas." });
+          return;
+        }
+        const slippageBps = bpsValue("slippageBps", 100);
+        const mevBudgetBps = bpsValue("mevBudgetBps", 100);
+        const builderFeeBps = bpsValue("builderFeeBps", 0);
+        const safetyBufferBps = bpsValue("safetyBufferBps", 500);
+        if (slippageBps === null || mevBudgetBps === null || builderFeeBps === null || safetyBufferBps === null) {
+          send(res, 400, { error: "invalid_cost_budget", message: "Slippage, MEV, builder and safety budgets must be integer basis points from 0 to 9999." });
+          return;
+        }
+        const rawLookback = Number(url.searchParams.get("lookbackBlocks") ?? 10_000);
+        const lookbackBlocks = Number.isInteger(rawLookback) ? Math.max(1, Math.min(100_000, rawLookback)) : 10_000;
+        try {
+          const discovery = await discoverMultichainCandidates({ network, rpcUrl, lookbackBlocks });
+          const rows: Array<Record<string, unknown>> = [];
+          for (let i = 0; i < discovery.borrowers.length && i < 40; i += 4) {
+            const batch = discovery.borrowers.slice(i, i + 4);
+            const snapshots = await Promise.all(batch.map(async (borrower) => {
+              try {
+                return await inspectAaveL2ReservePositions({ network, rpcUrl, borrower, confirmations: 1 });
+              } catch (error) {
+                return { borrower, error: error instanceof Error ? error.message : "reserve snapshot failed" };
+              }
+            }));
+            for (const snapshot of snapshots) {
+              if (!("pairs" in snapshot) || !Array.isArray(snapshot.pairs)) {
+                rows.push(snapshot as unknown as Record<string, unknown>);
+                continue;
+              }
+              for (const pair of snapshot.pairs as Array<import("../aave/l2-reserve-positions.js").AaveL2LiquidationPair>) {
+                if (!pair.dustRuleSatisfied || !pair.flashLoanAvailable || BigInt(pair.actualDebtToCover) <= 0n) continue;
+                const repay = BigInt(pair.actualDebtToCover);
+                const budget = (value: bigint, bps: number) => ((value * BigInt(bps)) + 9_999n) / 10_000n;
+                try {
+                  const estimate = await estimateAaveL2PairNetProfit({
+                    snapshot: snapshot as import("../aave/l2-reserve-positions.js").AaveL2ReserveSnapshot,
+                    pair,
+                    rpcUrl,
+                    gasUnits: gasUnitsRaw,
+                    slippageBps,
+                    mevBudgetDebtTokenUnits: budget(repay, mevBudgetBps).toString(),
+                    builderFeeDebtTokenUnits: budget(repay, builderFeeBps).toString(),
+                    safetyBufferBps
+                  });
+                  rows.push({
+                    protocol: "aave-v3",
+                    borrower: snapshot.user,
+                    collateralAsset: pair.collateralAsset,
+                    collateralSymbol: pair.collateralSymbol,
+                    debtAsset: pair.debtAsset,
+                    debtSymbol: pair.debtSymbol,
+                    debtToCover: pair.actualDebtToCover,
+                    collateralSeized: pair.grossCollateralSeized,
+                    protocolFeeCollateral: pair.protocolFeeCollateral,
+                    ...estimate
+                  });
+                } catch (error) {
+                  rows.push({ protocol: "aave-v3", borrower: snapshot.user, pair, error: error instanceof Error ? error.message : "profitability quote failed" });
+                }
+              }
+            }
+          }
+          const ranked = rows.filter((row) => typeof row.estimatedNetProfitDebtTokenUnits === "string")
+            .sort((a, b) => {
+              const av = BigInt(String(a.estimatedNetProfitDebtTokenUnits));
+              const bv = BigInt(String(b.estimatedNetProfitDebtTokenUnits));
+              return av === bv ? 0 : av > bv ? -1 : 1;
+            });
+          send(res, 200, {
+            network,
+            source: "bounded-aave-discovery-plus-pinned-reserve-data-and-same-block-uniswap-quotes",
+            discovery: { borrowersFound: discovery.borrowers.length, completeness: discovery.completeness, fromBlock: discovery.fromBlock, toBlock: discovery.toBlock },
+            scannedAccounts: Math.min(discovery.borrowers.length, 40),
+            ranked,
+            unrankedOrFailed: rows.filter((row) => typeof row.estimatedNetProfitDebtTokenUnits !== "string"),
+            budgets: { gasUnits: gasUnitsRaw, slippageBps, mevBudgetBps, builderFeeBps, safetyBufferBps },
+            executionEnabled: false,
+            transactionSubmitted: false,
+            warning: "This is a read-only Aave Base/Arbitrum screening rank. It uses reserve-specific balances/configuration, eMode-aware prices/bonus, Aave flash premium/liquidity, same-block direct Uniswap V3 quotes, RPC gas price, and explicit caller budgets. It is not a complete transaction gas estimate because no audited flash-loan executor exists; multi-hop routes, L1 data fees, failed-transaction costs, exact scaled-token rounding and live MEV remain unverified. No signing or broadcasting."
+          });
+        } catch (error) {
+          send(res, 502, { error: "multichain_opportunity_scan_failed", message: error instanceof Error ? error.message : "Opportunity scan failed" });
+        }
+        return;
+      }
       if (url.pathname === "/api/v1/positions/multichain") {
         const network = url.searchParams.get("network");
         if (network !== "base" && network !== "arbitrum") {
