@@ -275,7 +275,9 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
         } catch { readFailures += 1; }
       }
       // Rotate through every borrower market so a large discovery set cannot
-      // permanently starve markets after the first page of IDs.
+      // permanently starve markets after the first page of IDs. Within each
+      // market, refresh never-seen/stale rows first, then stale high-risk debt
+      // positions, then the oldest remaining snapshots.
       const refreshMarkets = [...marketsById.values()];
       const borrowerMarkets = [...borrowerMarketIds]
         .map((marketId) => marketsById.get(marketId))
@@ -334,13 +336,12 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
           };
           const elapsed = BigInt(observedBlock.timestamp) - BigInt(state[4]);
           if (elapsed < 0n) throw new Error("Market lastUpdate is later than pinned block timestamp");
-          const rate = irmAddress.toLowerCase() === "0x0000000000000000000000000000000000000000"
+          const totalBorrowShares = BigInt(state[3]);
+          const rate = totalBorrowShares === 0n || irmAddress.toLowerCase() === "0x0000000000000000000000000000000000000000"
             ? 0n
             : BigInt(await new Contract(irmAddress, IRM_ABI, provider).getFunction("borrowRateView")({
                 loanToken: params[0], collateralToken: params[1], oracle: params[2], irm: params[3], lltv: params[4]
               }, marketState, { blockTag: head }));
-          const totalBorrowShares = BigInt(state[3]);
-          if (totalBorrowShares === 0n) continue;
           // Position reads are independent once market state and oracle data are pinned.
           // Four concurrent reads improve snapshot throughput while leaving headroom
           // under Ankr's shared request-rate limit for history and market calls.
