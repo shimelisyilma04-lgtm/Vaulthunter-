@@ -8,13 +8,14 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Bounded recent-event scanner for quick checks (configurable 1–10,000 block window; recent Borrow-event discovery only).
 - Read-only HTTP API and live dashboard for service health, indexer status, borrowers, events, scans, automatic candidate rechecks, and liquidation estimates.
 - Conservative Aave V3 liquidation profitability screening calculator with account-level close-factor cap, collateral cap, reserve protocol fee, $1,000 partial-liquidation dust checks, flash-loan, swap, slippage, gas, and safety-buffer inputs.
-- SQLite-backed incremental Aave V3 historical Borrow-event indexer.
+- PostgreSQL-backed incremental Aave V3 historical Borrow-event indexer when `DATABASE_URL` is set (SQLite is local-development fallback).
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
 - Current health-factor snapshots and a ranked read-only risk feed for indexed borrowers. Snapshot refresh batches rotate through the full known-borrower set instead of repeatedly refreshing only the first page.
 - Confirmed-block Aave Protocol Data Provider and Aave Oracle enrichment for reserve balances, oracle prices, reserve eMode-category membership, liquidation protocol fee, category parameters, and collateral/debt screening pairs. The category liquidation bonus is applied when the selected collateral reserve matches the user category and no category price-source override exists; custom eMode price feeds remain explicitly unsupported until safely normalized.
 - Automatic `/api/v1/opportunities` rechecks for previously flagged borrowers, with bounded concurrency, short caching, and per-wallet confirmed-block state reads.
 - Optional Aave-maintained Ethereum V3 subgraph discovery adapter (requires a The Graph API key; bounded recent history, not exhaustive).
 - Read-only Base and Arbitrum Aave V3/Morpho Blue recent-event discovery, followed by same-block live borrower/market position refresh.
+- Optional Ethereum Morpho Blue historical discovery with PostgreSQL persistence, confirmation-aware event checkpointing, pinned-block position refresh, IRM Taylor-compounded debt accrual, and a protocol-math full-position liquidation diagnostic quote. It is opt-in with `MORPHO_INDEXER_ENABLED=true` and never submits transactions.
 - Read-only Uniswap V3 QuoterV2 single-pool and same-block multi-hop path quote screening across Ethereum, Base and Arbitrum. For a supplied 1–3 hop token sequence, up to 64 standard fee-tier combinations are checked; best raw output and estimated gas are screening data only.
 - Integer-only execution-cost budget using max EIP-1559 gas exposure, native-asset USD price, flash-loan fee, swap fee, slippage, builder fee, and safety buffer; values are rounded conservatively in USD cents.
 - Optional isolated Ethereum, Base and Arbitrum Anvil fork simulator: token-protected `eth_call` plus `eth_estimateGas` against a verified chain-matched fork node. It requires complete calldata from a separately audited executor; VaultHunter does not build, sign, or submit liquidation transactions.
@@ -40,7 +41,7 @@ npm run aave:index:once
 npm run aave:index
 ```
 
-The local SQLite database defaults to `./data/vaulthunter.sqlite`. Hosted deployments can use PostgreSQL by setting `DATABASE_URL`; the indexer remains disabled until `AAVE_INDEXER_ENABLED=true` is explicitly set. For a $0 persistent development database, see [Neon](https://console.neon.tech/) and the [historical indexer setup](docs/AAVE_INDEXER.md).
+The local SQLite database defaults to `./data/vaulthunter.sqlite` for development only. Hosted deployments use PostgreSQL by setting `DATABASE_URL`; the Aave indexer remains disabled until `AAVE_INDEXER_ENABLED=true`, and the Ethereum Morpho indexer remains disabled until `MORPHO_INDEXER_ENABLED=true`. See [Morpho Ethereum indexer instructions](docs/MORPHO_ETHEREUM_INDEXER.md). For a $0 persistent development database, see [Neon](https://console.neon.tech/) and the [historical indexer setup](docs/AAVE_INDEXER.md).
 
 ## Read-only HTTP API
 

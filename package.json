@@ -19,7 +19,9 @@
     "aave:index:once": "tsx src/aave/indexer-cli.ts --once",
     "aave:index": "tsx src/aave/indexer-cli.ts",
     "audit:summary": "node scripts/audit-summary.mjs",
-    "chains:check": "tsx src/chain/check-cli.ts"
+    "chains:check": "tsx src/chain/check-cli.ts",
+    "morpho:index:once": "tsx src/morpho/indexer-cli.ts --once",
+    "morpho:index": "tsx src/morpho/indexer-cli.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

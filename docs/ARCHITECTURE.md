@@ -9,9 +9,10 @@
 ## Components
 
 - Chain connectors: typed RPC clients, chain metadata, block pinning, retry/rate-limit policy.
-- Protocol adapters: isolated Aave V3 and future Morpho Blue readers built from verified official interfaces.
+- Protocol adapters: Aave V3 and Morpho Blue read-only readers with pinned-block market/position/oracle reads.
+- Morpho Blue: Ethereum market discovery, confirmation-aware event indexing, IRM-based accrued-debt screening, virtual-share rounding, and a protocol-math full-position liquidation diagnostic quote.
 - Historical indexer: incremental event ingestion, durable checkpoints, confirmation-depth reorg recovery, and borrower aggregates.
-- Storage: SQLite for the single-writer low-cost deployment; use a persistent volume and backups.
+- Storage: PostgreSQL for hosted Aave and Morpho event ledgers/checkpoints; SQLite is local-development fallback only. Use a managed durable PostgreSQL provider and backups.
 - Liquidation engine: protocol-specific eligibility checks and candidate normalization.
 - Keeper engine: discovers tasks only when a documented reward or incentive exists.
 - Profitability engine: denomination-aware cost accounting with conservative buffers.
@@ -24,7 +25,7 @@
 Ethereum RPC
   -> Aave V3 Pool Borrow logs
   -> incremental confirmation-aware indexer
-  -> SQLite event ledger + block-hash checkpoint
+  -> PostgreSQL event ledger + block-hash checkpoint
   -> borrower aggregate table
   -> current health-factor snapshots
   -> candidate feed for profitability analysis
@@ -32,7 +33,7 @@ Ethereum RPC
 
 The indexer processes sequential bounded block ranges. Each event batch and checkpoint are committed atomically. Before continuing, the last checkpoint block hash is compared with the canonical chain. On mismatch, the indexer rewinds by the configured confirmation depth and rebuilds borrower aggregates from retained events.
 
-A full historical backfill is deliberately rate-limited. On free RPC tiers it may take a long time. SQLite is suitable for one active writer; horizontally scaled workers require a server database and a single-writer/lease mechanism.
+A full historical backfill is deliberately rate-limited. On free RPC tiers it may take a long time. Hosted indexers use PostgreSQL; keep one active indexer writer per protocol/chain until an explicit lease or advisory-lock mechanism is added.
 
 ## Profitability requirements
 
