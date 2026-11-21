@@ -23,6 +23,9 @@ const POOL_EMODE_BITMAP_ABI = [
 const POOL_EMODE_LEGACY_ABI = [
   "function getEModeCategoryData(uint8) view returns (uint16 ltv,uint16 liquidationThreshold,uint16 liquidationBonus,address priceSource,string label)"
 ] as const;
+const POOL_EMODE_COLLATERAL_BITMAP_ABI = [
+  "function getEModeCategoryCollateralBitmap(uint8) view returns (uint128)"
+] as const;
 const ORACLE_ABI = [
   "function getAssetPrice(address) view returns (uint256)",
   "function BASE_CURRENCY() view returns (address)",
@@ -242,27 +245,46 @@ export async function inspectAaveL2ReservePositions(args: {
       | { profile: "legacy-price-source"; liquidationBonusBps: string; priceSource: string; label: string }
       | null = null;
     if (userEModeCategory > 0) {
+      let categoryData: readonly unknown[] | null = null;
+      let categoryProfile: "bitmap-tuple" | "legacy" | null = null;
       try {
-        const eModePool = new Contract(poolAddress, POOL_EMODE_BITMAP_ABI, provider);
-        const data = await eModePool.getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
-        eModeData = {
-          profile: "bitmap",
-          liquidationBonusBps: asBigInt(data[2], "eMode liquidation bonus").toString(),
-          collateralBitmap: asBigInt(data[3], "eMode collateral bitmap").toString(),
-          label: String(data[5])
-        };
+        categoryData = await new Contract(poolAddress, POOL_EMODE_LEGACY_ABI, provider)
+          .getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
+        categoryProfile = "legacy";
       } catch {
         try {
-          const legacyPool = new Contract(poolAddress, POOL_EMODE_LEGACY_ABI, provider);
-          const data = await legacyPool.getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
+          categoryData = await new Contract(poolAddress, POOL_EMODE_BITMAP_ABI, provider)
+            .getFunction("getEModeCategoryData").staticCall(userEModeCategory, { blockTag: observedBlock }) as readonly unknown[];
+          categoryProfile = "bitmap-tuple";
+        } catch {
+          throw new Error("User has an eMode category but its liquidation bonus ABI could not be decoded; pair estimates are withheld.");
+        }
+      }
+      const liquidationBonusBps = asBigInt(categoryData[2], "eMode liquidation bonus").toString();
+      if (categoryProfile === "bitmap-tuple") {
+        eModeData = {
+          profile: "bitmap",
+          liquidationBonusBps,
+          collateralBitmap: asBigInt(categoryData[3], "eMode collateral bitmap").toString(),
+          label: String(categoryData[5])
+        };
+      } else {
+        try {
+          const bitmap = await new Contract(poolAddress, POOL_EMODE_COLLATERAL_BITMAP_ABI, provider)
+            .getFunction("getEModeCategoryCollateralBitmap").staticCall(userEModeCategory, { blockTag: observedBlock });
           eModeData = {
-            profile: "legacy-price-source",
-            liquidationBonusBps: asBigInt(data[2], "legacy eMode liquidation bonus").toString(),
-            priceSource: getAddress(String(data[3])),
-            label: String(data[4])
+            profile: "bitmap",
+            liquidationBonusBps,
+            collateralBitmap: asBigInt(bitmap, "eMode collateral bitmap").toString(),
+            label: String(categoryData[4])
           };
         } catch {
-          throw new Error("User has an eMode category but neither the Aave Origin bitmap ABI nor the legacy eMode ABI could be verified; pair estimates are withheld.");
+          eModeData = {
+            profile: "legacy-price-source",
+            liquidationBonusBps,
+            priceSource: getAddress(String(categoryData[3])),
+            label: String(categoryData[4])
+          };
         }
       }
     }
