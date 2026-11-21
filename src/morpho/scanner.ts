@@ -90,7 +90,7 @@ export interface MorphoScanResult {
     accruedInterestAssets: string; borrowRateWadPerSecond: string;
     liquidationQuote?: {
       repaidAssets: string; seizedAssets: string; liquidationIncentiveFactorWad: string;
-      availableLoanLiquidity: string; liquiditySufficient: boolean; collateralSufficient: boolean;
+      availableLoanLiquidity: string; liquiditySufficient: boolean; collateralSufficient: boolean; loanFundingVerified: false;
     };
   }>;
   executionEnabled: false;
@@ -177,9 +177,10 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
               collateralTokenAddress.toLowerCase() !== market.collateralToken.toLowerCase()) {
             throw new Error("Morpho API token addresses do not match onchain immutable parameters");
           }
-          const availableLoanLiquidity = BigInt(await new Contract(
-            loanTokenAddress, ["function balanceOf(address) view returns (uint256)"], provider
-          ).getFunction("balanceOf")(MORPHO_BLUE_ETHEREUM, { blockTag: head }));
+          // Morpho's own ERC-20 balance is shared across markets and is NOT the
+          // liquidator's funding. Keep the quote explicitly unfunded until an
+          // independent wallet/flash-loan source is supplied and verified.
+          const availableLoanLiquidity = 0n;
           const marketState = {
             totalSupplyAssets: state[0], totalSupplyShares: state[1],
             totalBorrowAssets: state[2], totalBorrowShares: state[3],
@@ -233,7 +234,8 @@ export async function runMorphoScanPass(rpcUrl: string, store: MorphoStorePort):
                     liquidationIncentiveFactorWad: quote.liquidationIncentiveFactorWad.toString(),
                     availableLoanLiquidity: availableLoanLiquidity.toString(),
                     liquiditySufficient: quote.liquiditySufficient,
-                    collateralSufficient: quote.collateralSufficient
+                    collateralSufficient: quote.collateralSufficient,
+                    loanFundingVerified: false
                   };
                 } catch {
                   readFailures += 1;
