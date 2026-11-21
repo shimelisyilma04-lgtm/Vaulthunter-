@@ -131,7 +131,12 @@ export class MorphoStore implements MorphoStorePort {
   listBorrowers(chainId: number, marketId: string, limit: number): MorphoBorrower[] {
     return this.db.prepare(`
       SELECT address FROM morpho_borrowers WHERE chain_id=? AND market_id=?
-      ORDER BY CASE WHEN snapshot_updated_at IS NULL THEN 0 ELSE 1 END, snapshot_updated_at ASC
+      ORDER BY
+        CASE WHEN snapshot_updated_at IS NULL OR snapshot_updated_at < datetime('now','-60 seconds') THEN 0 ELSE 1 END,
+        CASE WHEN debt_assets IS NOT NULL AND CAST(debt_assets AS REAL)>0
+          AND health_factor_wad IS NOT NULL AND CAST(health_factor_wad AS REAL)<1000000000000000000
+          THEN 0 ELSE 1 END,
+        snapshot_updated_at ASC
       LIMIT ?
     `).all(chainId, marketId, limit) as MorphoBorrower[];
   }
@@ -175,6 +180,7 @@ export class MorphoStore implements MorphoStorePort {
   }
   getMonitorStats(chainId: number): {
     marketCount: number; borrowerCount: number; candidateCount: number;
+    refreshedLast2Minutes: number; latestSnapshotAt: string | null;
     latestSnapshotBlock: number | null; checkpoint: MorphoCheckpoint | null;
   } {
     const markets = this.db.prepare("SELECT COUNT(*) AS n FROM morpho_markets WHERE chain_id=?").get(chainId) as {n:number};
@@ -185,11 +191,15 @@ export class MorphoStore implements MorphoStorePort {
         AND health_factor_wad IS NOT NULL
         AND (length(health_factor_wad)<19 OR
           (length(health_factor_wad)=19 AND health_factor_wad<'1000000000000000000'))
+        AND snapshot_updated_at > datetime('now','-60 seconds')
     `).get(chainId) as {n:number};
+    const refreshed = this.db.prepare("SELECT COUNT(*) AS n, MAX(snapshot_updated_at) AS latest FROM morpho_borrowers WHERE chain_id=? AND snapshot_updated_at > datetime('now','-2 minutes')")
+      .get(chainId) as {n:number;latest:string|null};
     const latest = this.db.prepare("SELECT MAX(observed_block) AS block FROM morpho_borrowers WHERE chain_id=?")
       .get(chainId) as {block:number|null};
     return {
       marketCount: markets.n, borrowerCount: borrowers.n, candidateCount: candidates.n,
+      refreshedLast2Minutes: refreshed.n, latestSnapshotAt: refreshed.latest,
       latestSnapshotBlock: latest.block, checkpoint: this.getGlobalCheckpoint(chainId)
     };
   }
@@ -206,6 +216,7 @@ export class MorphoStore implements MorphoStorePort {
         AND health_factor_wad IS NOT NULL
         AND (length(health_factor_wad)<19 OR
           (length(health_factor_wad)=19 AND health_factor_wad<'1000000000000000000'))
+        AND snapshot_updated_at > datetime('now','-60 seconds')
       ORDER BY length(health_factor_wad),health_factor_wad ASC
       LIMIT ?
     `).all(chainId,safeLimit) as MorphoCandidate[];
