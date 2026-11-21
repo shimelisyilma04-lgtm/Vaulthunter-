@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { accrueMorphoBorrowDebt } from "./accrual.js";
 import { quoteMorphoLiquidation } from "./liquidation-quote.js";
 import type { MorphoStorePort } from "./store-port.js";
-import { quoteUniswapV3BestExactInput } from "../aave/uniswap-quote.js";
+import { quoteUniswapV3BestRoute } from "../aave/uniswap-quote.js";
 
 const MORPHO = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
 const AAVE_V3_POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -140,11 +140,11 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         const marketLiquiditySufficient = quote.repaidAssets <= availableMarketLiquidity;
         let swapQuote: Record<string, unknown> | null = null;
         try {
-          const result = await quoteUniswapV3BestExactInput(config.MORPHO_RPC_URL, {
+          const result = await quoteUniswapV3BestRoute(config.MORPHO_RPC_URL, {
             tokenIn: collateralToken, tokenOut: loanToken, amountIn: quote.seizedAssets.toString()
           }, blockNumber);
           swapQuote = result as unknown as Record<string, unknown>;
-          if (result.amountOut === null) reasons.push("No supported Uniswap V3 fee-tier route returned a quote");
+          if (result.amountOut === null || BigInt(result.amountOut) <= 0n) reasons.push("No supported direct or two-hop Uniswap V3 route returned positive output");
           if (result.blockNumber !== blockNumber || result.blockHash.toLowerCase() !== validationBlockHash.toLowerCase()) {
             reasons.push("Swap quote block hash differs from the pinned liquidation validation block");
             swapQuote = null;
@@ -190,7 +190,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         };
         data.push({
           borrower: candidate.borrower, marketId: candidate.marketId,
-          status: marketLiquiditySufficient && swapQuote && swapQuote.amountOut !== null ? "partially-validated" : "not-validated",
+          status: marketLiquiditySufficient && swapQuote && typeof swapQuote.amountOut === "string" && BigInt(swapQuote.amountOut) > 0n ? "partially-validated" : "not-validated",
           validationBlock: blockNumber, validationBlockHash: validationBlockHash,
           healthFactor: Number(healthFactorWad) / 1e18,
           loanToken: { address: loanToken, symbol: String(loanSymbol), decimals: Number(loanMeta) },
