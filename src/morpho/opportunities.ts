@@ -109,6 +109,25 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           data.push({ borrower: candidate.borrower, marketId: candidate.marketId, status: "rejected", reasons: ["Position is not currently liquidatable at validation block"], validationBlock: blockNumber, healthFactor: Number(healthFactorWad) / 1e18 });
           continue;
         }
+        if (!quote.valid || !quote.collateralSufficient || !quote.repaymentSharesSufficient) {
+          data.push({
+            borrower: candidate.borrower, marketId: candidate.marketId, status: "rejected",
+            reasons: ["Morpho liquidation sizing failed collateral or repayment-share safety checks"],
+            validationBlock: blockNumber, validationBlockHash: block.hash,
+            liquidationMath: {
+              mode: quote.liquidationMode,
+              collateralLimited: quote.collateralLimited,
+              estimatedSeizedCollateral: quote.seizedAssets.toString(),
+              borrowerCollateralAssets: collateralAssets.toString(),
+              estimatedRepaidShares: quote.repaidShares.toString(),
+              borrowerBorrowShares: borrowShares.toString(),
+              collateralSufficient: quote.collateralSufficient,
+              repaymentSharesSufficient: quote.repaymentSharesSufficient
+            },
+            executionEnabled: false
+          });
+          continue;
+        }
         const [loanMeta, collateralMeta] = await Promise.all([
           new Contract(loanToken, ERC20_ABI, provider).getFunction("decimals")({ blockTag: blockNumber }),
           new Contract(collateralToken, ERC20_ABI, provider).getFunction("decimals")({ blockTag: blockNumber })
@@ -175,7 +194,22 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
           liquidationIncentiveFactor: Number(quote.liquidationIncentiveFactorWad) / 1e18,
           estimatedRepaidAssets: quote.repaidAssets.toString(),
+          estimatedRepaidShares: quote.repaidShares.toString(),
           estimatedSeizedCollateral: quote.seizedAssets.toString(),
+          liquidationMath: {
+            source: "Morpho Blue liquidate() integer rounding mirrored locally",
+            validationBlock: blockNumber,
+            validationBlockHash: block.hash,
+            mode: quote.liquidationMode,
+            collateralLimited: quote.collateralLimited,
+            requestedRepaidShares: quote.requestedRepaidShares.toString(),
+            actualRepaidShares: quote.repaidShares.toString(),
+            collateralSufficient: quote.collateralSufficient,
+            repaymentSharesSufficient: quote.repaymentSharesSufficient,
+            remainingBorrowShares: quote.remainingBorrowShares.toString(),
+            remainingCollateralAssets: quote.remainingCollateralAssets.toString(),
+            note: "All market, position, LLTV and oracle inputs were read at this validation block. Local formula parity is not a successful transaction simulation."
+          },
           marketLiquidity, collateralExitQuote: swapQuote,
           funding: flashFunding,
           gas: { status: "unpriced", gasUnitsFromQuote: swapQuote?.gasEstimate ?? null, gasPriceWei: (await provider.getFeeData()).gasPrice?.toString() ?? null },
