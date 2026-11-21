@@ -36,6 +36,7 @@ describe("Morpho monitoring API", () => {
         latestSnapshotBlock: 26461785,
         checkpoint: { lastBlock: 26461785, lastBlockHash: "0xabc" }
       }),
+      listRiskPositions: async () => [{ marketId: "0xmarket", borrower: "0x0000000000000000000000000000000000000002", observedBlock: 26461785, borrowShares: "10", debtAssets: "11", collateralAssets: "20", oraclePrice: "2000000000000000000000000000000000000", lltvWad: "860000000000000000", healthFactorWad: "1040000000000000000", snapshotUpdatedAt: new Date().toISOString() }],
       listLiquidationCandidates: async () => [{
         marketId: "0xmarket", borrower: "0x0000000000000000000000000000000000000001",
         observedBlock: 26461785, borrowShares: "10", debtAssets: "11",
@@ -57,6 +58,9 @@ describe("Morpho monitoring API", () => {
         counts: { marketsDiscovered: 12, borrowersDiscovered: 34, liquidationEligibleFreshSnapshots: 2, refreshedLast2Minutes: 30 },
         candidateFreshnessWindowSeconds: 60
       });
+      const risk = await fetch(`${base}/api/v1/morpho/risk?limit=5`);
+      expect(risk.status).toBe(200);
+      expect(await risk.json()).toMatchObject({ count: 1, executionEnabled: false, ranking: "lowest-health-factor-first", data: [{ rank: 1, healthFactor: 1.04, riskClassification: "critical", liquidationEligibleAtSnapshot: false }] });
       const candidates = await fetch(`${base}/api/v1/morpho/candidates?limit=5`);
       expect(candidates.status).toBe(200);
       expect(await candidates.json()).toMatchObject({
