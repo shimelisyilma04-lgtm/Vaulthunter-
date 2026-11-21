@@ -5,8 +5,8 @@ export const UNISWAP_V3_QUOTER_V2 = {
   arbitrum: { chainId: 42161, address: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e" }
 } as const;
 
-const ABI = [
-  "function quoteExactInputSingle((address tokenIn,address tokenOut,uint24 fee,uint256 amountIn,uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)"
+export const UNISWAP_V3_QUOTER_V2_ABI = [
+  "function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)"
 ] as const;
 
 export async function quoteMultiChainUniswapV3(args: {
@@ -44,7 +44,7 @@ export async function quoteMultiChainUniswapV3(args: {
       throw new Error(`Expected chain ${deployment.chainId}; received ${network.chainId}`);
     }
     const blockNumber = await provider.getBlockNumber();
-    const quoter = new Contract(deployment.address, ABI, provider);
+    const quoter = new Contract(deployment.address, UNISWAP_V3_QUOTER_V2_ABI, provider);
     const candidates = await Promise.all([100, 500, 3000, 10000].map(async (fee) => {
       try {
         const quote = await quoter.getFunction("quoteExactInputSingle").staticCall({
