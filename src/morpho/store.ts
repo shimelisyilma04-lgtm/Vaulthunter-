@@ -70,6 +70,10 @@ export class MorphoStore {
       .get(chainId, marketId) as MorphoCheckpoint | undefined;
     return row?.lastBlock === null || row?.lastBlock === undefined ? null : row;
   }
+  resetMarketCheckpoint(chainId: number, marketId: string, block: number, hash: string): void {
+    this.db.prepare("UPDATE morpho_markets SET last_block=?,last_block_hash=? WHERE chain_id=? AND market_id=?")
+      .run(block, hash, chainId, marketId);
+  }
   saveBatch(chainId: number, marketId: string, addresses: string[], block: number, hash: string): void {
     const tx = this.db.transaction(() => {
       const insert = this.db.prepare(`
@@ -114,7 +118,7 @@ export class MorphoStore {
         AND CAST(health_factor_wad AS REAL)<1000000000000000000
       LIMIT ?
     `).all(chainId,marketId,limit) as MorphoCandidate[];
-    return rows.sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
+    return rows.filter((r)=>BigInt(r.debtAssets)>0n && BigInt(r.healthFactorWad)<10n**18n)\n      .sort((a,b)=>BigInt(a.healthFactorWad)<BigInt(b.healthFactorWad)?-1:BigInt(a.healthFactorWad)>BigInt(b.healthFactorWad)?1:0);
   }
   stats(chainId: number, marketId: string): { borrowers: number; indexedTo: number | null; candidates: number } {
     const borrowers=this.db.prepare("SELECT COUNT(*) AS n FROM morpho_borrowers WHERE chain_id=? AND market_id=?").get(chainId,marketId) as {n:number};
