@@ -24,7 +24,12 @@ interface IAavePoolFork {
     function liquidationCall(address collateralAsset,address debtAsset,address user,uint256 debtToCover,bool receiveAToken) external;
 }
 
-interface IERC20Fork {\n    function balanceOf(address account) external view returns (uint256);\n    function approve(address spender, uint256 amount) external returns (bool);\n}\n\ninterface IMorphoBlueFork {
+interface IERC20Fork {
+    function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
+interface IMorphoBlueFork {
     struct MarketParams {
         address loanToken;
         address collateralToken;
