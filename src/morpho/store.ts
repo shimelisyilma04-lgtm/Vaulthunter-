@@ -83,12 +83,9 @@ export class MorphoStore implements MorphoStorePort {
     return row ?? null;
   }
   resetGlobalCheckpoint(chainId: number): void {
-    const tx = this.db.transaction(() => {
-      // Discard discovered addresses whose event provenance may be on the orphaned branch.
-      this.db.prepare("DELETE FROM morpho_borrowers WHERE chain_id=?").run(chainId);
-      this.db.prepare("DELETE FROM morpho_global_checkpoint WHERE chain_id=?").run(chainId);
-    });
-    tx();
+    // Keep the discovered address set: every snapshot is re-read from canonical
+    // state, so stale addresses are harmless and can be filtered by zero debt.
+    this.db.prepare("DELETE FROM morpho_global_checkpoint WHERE chain_id=?").run(chainId);
   }
   saveGlobalBatch(chainId: number, entries: Array<{marketId:string;address:string}>, block: number, hash: string): void {
     const tx = this.db.transaction(() => {
