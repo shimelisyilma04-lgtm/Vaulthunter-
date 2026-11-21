@@ -1,11 +1,12 @@
-import { Contract, JsonRpcProvider, getAddress } from "ethers";
+import { Contract, JsonRpcProvider, encodeBytes32String, getAddress } from "ethers";
 import { AAVE_V3_MARKETS, type AaveL2Network } from "./l2-readonly.js";
 import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import { calculateNetProfit } from "../domain/net-profit.js";
 
 const PROVIDER_ABI = [
   "function getPool() view returns (address)",
-  "function getPriceOracle() view returns (address)"
+  "function getPriceOracle() view returns (address)",
+  "function getAddress(bytes32 id) view returns (address)"
 ] as const;
 const POOL_ABI = [
   "function getUserAccountData(address) view returns (uint256,uint256,uint256,uint256,uint256,uint256)",
@@ -209,14 +210,15 @@ export async function inspectAaveL2ReservePositions(args: {
     const oracleAddress = getAddress(String(oracleAddressRaw));
     const pool = new Contract(poolAddress, POOL_ABI, provider);
     const oracle = new Contract(oracleAddress, ORACLE_ABI, provider);
-    const [accountRaw, userConfigRaw, reservesRaw, eModeRaw, baseCurrencyRaw, baseUnitRaw, flashPremiumRaw] = await Promise.all([
+    const [accountRaw, userConfigRaw, reservesRaw, eModeRaw, baseCurrencyRaw, baseUnitRaw, flashPremiumRaw, mockStableDebtRaw] = await Promise.all([
       pool.getFunction("getUserAccountData").staticCall(borrower, { blockTag: observedBlock }),
       pool.getFunction("getUserConfiguration").staticCall(borrower, { blockTag: observedBlock }),
       pool.getFunction("getReservesList").staticCall({ blockTag: observedBlock }),
       pool.getFunction("getUserEMode").staticCall(borrower, { blockTag: observedBlock }),
       oracle.getFunction("BASE_CURRENCY").staticCall({ blockTag: observedBlock }),
       oracle.getFunction("BASE_CURRENCY_UNIT").staticCall({ blockTag: observedBlock }),
-      pool.getFunction("FLASHLOAN_PREMIUM_TOTAL").staticCall({ blockTag: observedBlock })
+      pool.getFunction("FLASHLOAN_PREMIUM_TOTAL").staticCall({ blockTag: observedBlock }),
+      addressesProvider.getFunction("getAddress").staticCall(encodeBytes32String("MOCK_STABLE_DEBT"), { blockTag: observedBlock })
     ]);
     const account = accountRaw as readonly bigint[];
     const userBitmap = asBigInt((userConfigRaw as readonly [bigint])[0], "user configuration");
@@ -226,6 +228,7 @@ export async function inspectAaveL2ReservePositions(args: {
     const userEModeCategory = Number(asBigInt(eModeRaw, "user eMode"));
     if (baseUnit === 0n) throw new Error("Aave returned a zero base-currency unit");
     const flashLoanPremiumBps = asBigInt(flashPremiumRaw, "flash-loan premium");
+    const mockStableDebtAddress = getAddress(String(mockStableDebtRaw));
     let minBaseThreshold: bigint | null = null;
     let minLeftover: bigint | null = null;
     try {
@@ -314,7 +317,7 @@ export async function inspectAaveL2ReservePositions(args: {
         if (!collateralEnabled && !borrowing) return null;
         const [collateralRaw, stableRaw, variableRaw, flashLiquidityRaw] = await Promise.all([
           new Contract(aToken, ERC20_ABI, provider).getFunction("balanceOf").staticCall(borrower, { blockTag: observedBlock }),
-          stableDebtToken === ZERO ? 0n : new Contract(stableDebtToken, ERC20_ABI, provider).getFunction("balanceOf").staticCall(borrower, { blockTag: observedBlock }),
+          stableDebtToken === ZERO || stableDebtToken.toLowerCase() === mockStableDebtAddress.toLowerCase() ? 0n : new Contract(stableDebtToken, ERC20_ABI, provider).getFunction("balanceOf").staticCall(borrower, { blockTag: observedBlock }),
           variableDebtToken === ZERO ? 0n : new Contract(variableDebtToken, ERC20_ABI, provider).getFunction("balanceOf").staticCall(borrower, { blockTag: observedBlock }),
           new Contract(asset, ERC20_ABI, provider).getFunction("balanceOf").staticCall(aToken, { blockTag: observedBlock })
         ]);
