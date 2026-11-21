@@ -161,5 +161,42 @@ export class MorphoStore implements MorphoStorePort {
     const candidates=this.db.prepare("SELECT COUNT(*) AS n FROM morpho_borrowers WHERE chain_id=? AND market_id=? AND CAST(debt_assets AS REAL)>0 AND CAST(health_factor_wad AS REAL)<1000000000000000000").get(chainId,marketId) as {n:number};
     return {borrowers:borrowers.n,indexedTo:market.lastBlock,candidates:candidates.n};
   }
+  getMonitorStats(chainId: number): {
+    marketCount: number; borrowerCount: number; candidateCount: number;
+    latestSnapshotBlock: number | null; checkpoint: MorphoCheckpoint | null;
+  } {
+    const markets = this.db.prepare("SELECT COUNT(*) AS n FROM morpho_markets WHERE chain_id=?").get(chainId) as {n:number};
+    const borrowers = this.db.prepare("SELECT COUNT(*) AS n FROM morpho_borrowers WHERE chain_id=?").get(chainId) as {n:number};
+    const candidates = this.db.prepare(`
+      SELECT COUNT(*) AS n FROM morpho_borrowers
+      WHERE chain_id=? AND debt_assets IS NOT NULL AND debt_assets<>'0'
+        AND health_factor_wad IS NOT NULL
+        AND (length(health_factor_wad)<19 OR
+          (length(health_factor_wad)=19 AND health_factor_wad<'1000000000000000000'))
+    `).get(chainId) as {n:number};
+    const latest = this.db.prepare("SELECT MAX(observed_block) AS block FROM morpho_borrowers WHERE chain_id=?")
+      .get(chainId) as {block:number|null};
+    return {
+      marketCount: markets.n, borrowerCount: borrowers.n, candidateCount: candidates.n,
+      latestSnapshotBlock: latest.block, checkpoint: this.getGlobalCheckpoint(chainId)
+    };
+  }
+  listLiquidationCandidates(chainId: number, limit: number): MorphoCandidate[] {
+    const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+    return this.db.prepare(`
+      SELECT market_id AS marketId,address AS borrower,observed_block AS observedBlock,
+        borrow_shares AS borrowShares,debt_assets AS debtAssets,
+        collateral_assets AS collateralAssets,oracle_price AS oraclePrice,
+        lltv_wad AS lltvWad,health_factor_wad AS healthFactorWad,
+        snapshot_updated_at AS snapshotUpdatedAt
+      FROM morpho_borrowers
+      WHERE chain_id=? AND debt_assets IS NOT NULL AND debt_assets<>'0'
+        AND health_factor_wad IS NOT NULL
+        AND (length(health_factor_wad)<19 OR
+          (length(health_factor_wad)=19 AND health_factor_wad<'1000000000000000000'))
+      ORDER BY length(health_factor_wad),health_factor_wad ASC
+      LIMIT ?
+    `).all(chainId,safeLimit) as MorphoCandidate[];
+  }
   close(): void { this.db.close(); }
 }
