@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import type { AaveStorePort } from "../aave/store.js";
+import type { MorphoStorePort } from "../morpho/store-port.js";
 import { config, rpcConfigError } from "../config.js";
 import { scanAaveBorrowers } from "../aave/scanner.js";
 import { estimateAaveV3Liquidation } from "../domain/profitability.js";
@@ -121,7 +122,7 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
   return parsed as Record<string, unknown>;
 }
 
-export function startHttpServer(store: AaveStorePort): ReturnType<typeof createServer> {
+export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStorePort): ReturnType<typeof createServer> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://" + (req.headers.host ?? "localhost"));
     if (req.method === "OPTIONS") {
@@ -351,6 +352,48 @@ export function startHttpServer(store: AaveStorePort): ReturnType<typeof createS
       }
       if (url.pathname === "/healthz") {
         send(res, 200, { ok: true, service: "vaulthunter-api", mode: "read-only" });
+        return;
+      }
+      if (url.pathname === "/api/v1/morpho/status") {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable", message: "Morpho monitoring storage is not configured." });
+          return;
+        }
+        const stats = await morphoStore.getMonitorStats(1);
+        send(res, 200, {
+          protocol: "morpho-blue",
+          chain: "ethereum",
+          chainId: 1,
+          mode: "read-only",
+          indexerEnabled: config.MORPHO_INDEXER_ENABLED,
+          durableStorageConfigured: Boolean(config.DATABASE_URL),
+          storageBackend: config.DATABASE_URL ? "postgresql" : "local-sqlite",
+          historicalCoverageComplete: false,
+          checkpoint: stats.checkpoint,
+          counts: {
+            marketsDiscovered: stats.marketCount,
+            borrowersDiscovered: stats.borrowerCount,
+            liquidationEligibleSnapshots: stats.candidateCount
+          },
+          latestSnapshotBlock: stats.latestSnapshotBlock,
+          warning: "Event-derived borrower discovery and refreshed snapshots are incomplete. A health factor below 1 is a screening signal, not proof of a profitable or executable liquidation."
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/morpho/candidates") {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable", message: "Morpho monitoring storage is not configured." });
+          return;
+        }
+        const data = await morphoStore.listLiquidationCandidates(1, limitFrom(url, 20, 100));
+        send(res, 200, {
+          data,
+          count: data.length,
+          source: "postgresql-indexed-morpho-position-snapshots",
+          ranking: "lowest-health-factor-first",
+          executionEnabled: false,
+          warning: "These are historical screening snapshots. Refresh each position and verify a protocol liquidation simulation before considering any action; loan funding and DEX execution are not verified."
+        });
         return;
       }
       if (url.pathname === "/api/v1/status") {

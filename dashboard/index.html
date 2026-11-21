@@ -24,6 +24,7 @@
       <a class="active" href="#overview"><span class="ico">◫</span>Overview</a>
       <a href="#market"><span class="ico">◈</span>Market data</a>
       <a href="#borrowers"><span class="ico">◎</span>Borrowers</a>
+      <a href="#morpho"><span class="ico">◇</span>Morpho Blue</a>
       <a href="#risk"><span class="ico">⌁</span>Risk monitor</a>
       <a href="#activity"><span class="ico">◷</span>Event activity</a>
       <a href="#profitability"><span class="ico">◇</span>Profitability lab</a>
@@ -37,7 +38,7 @@
   </aside>
   <main class="main" id="overview">
     <header class="top">
-      <div><div class="eyebrow">AAVE V3 · ETHEREUM MAINNET</div><h1>Liquidation intelligence</h1></div>
+      <div><div class="eyebrow">AAVE V3 + MORPHO BLUE · ETHEREUM MAINNET</div><h1>Liquidation intelligence</h1></div>
       <div class="topright"><span class="network">◉ Ethereum</span><span class="demo" id="apiBadge">CONNECTING TO API</span></div>
     </header>
     <div class="intro" id="apiNotice"><span>ⓘ</span><div><b>Connecting to VaultHunter API…</b> Live data will appear here when the indexer has collected it. No transactions are executed.</div></div>
@@ -78,6 +79,20 @@
       </div>
       <div class="tablewrap"><table><thead><tr><th>ASSET</th><th>RESERVE SIZE</th><th>AVAILABLE TO BORROW</th><th>LIQUIDATION BONUS</th><th>FLASH LOAN</th><th>STATUS</th></tr></thead><tbody id="marketRows"><tr><td colspan="6">Loading market reserve data…</td></tr></tbody></table></div>
       <p id="marketFreshness" class="hint" style="margin-top:10px">Market data is provider-indexed and must be revalidated on-chain at a pinned block.</p>
+    </section>
+    <section class="panel tablepanel" id="morpho" style="margin-top:16px">
+      <div class="tabletop">
+        <div><h2>Morpho Blue · Ethereum</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">PostgreSQL-backed event discovery and refreshed position snapshots</span></div>
+        <button class="calc-button" id="refreshMorpho" type="button">Refresh Morpho</button>
+      </div>
+      <div class="cards" style="margin:12px 0">
+        <article class="card"><div class="cardhead">Markets discovered</div><div class="metric" id="morphoMarkets">—</div></article>
+        <article class="card"><div class="cardhead">Borrowers discovered</div><div class="metric" id="morphoBorrowers">—</div></article>
+        <article class="card"><div class="cardhead">HF below 1 snapshots</div><div class="metric" id="morphoCandidates">—</div></article>
+        <article class="card"><div class="cardhead">Indexed-through block</div><div class="metric" id="morphoCheckpoint" style="font-size:20px">—</div></article>
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>BORROWER</th><th>MARKET ID</th><th>HEALTH FACTOR</th><th>DEBT · BASE UNITS</th><th>SNAPSHOT BLOCK</th><th>UPDATED</th></tr></thead><tbody id="morphoRows"><tr><td colspan="6">Loading Morpho monitoring data…</td></tr></tbody></table></div>
+      <p id="morphoNote" class="hint" style="margin:10px 19px 16px">Morpho discovery and snapshots are incomplete historical screening data. No loan funding, swap route, transaction simulation or execution is verified.</p>
     </section>
     <section class="panel tablepanel" id="borrowers">
       <div class="tabletop"><div><h2>Borrower watchlist</h2><span style="display:block;color:var(--muted);font-size:11px;margin-top:4px">Borrowers discovered by the Aave V3 Borrow-event indexer</span></div><input id="filter" class="search" type="search" placeholder="Filter wallet address…" aria-label="Filter wallet address"></div>
@@ -170,6 +185,53 @@
       document.getElementById('footerStatus').textContent='API unavailable · Read-only mode';
     }
   }
+  const fmtInteger=(value)=>{try{return BigInt(value??'0').toLocaleString('en-US')}catch{return '—'}};
+  async function loadMorpho(){
+    const button=document.getElementById('refreshMorpho');
+    const body=document.getElementById('morphoRows');
+    button.disabled=true;
+    try{
+      const [statusRes,candidatesRes]=await Promise.all([
+        fetch('/api/v1/morpho/status'),
+        fetch('/api/v1/morpho/candidates?limit=20')
+      ]);
+      const status=await statusRes.json();
+      const candidates=await candidatesRes.json();
+      if(!statusRes.ok)throw new Error(status.message||'Morpho status unavailable');
+      if(!candidatesRes.ok)throw new Error(candidates.message||'Morpho candidate list unavailable');
+      document.getElementById('morphoMarkets').textContent=fmtInteger(status.counts?.marketsDiscovered);
+      document.getElementById('morphoBorrowers').textContent=fmtInteger(status.counts?.borrowersDiscovered);
+      document.getElementById('morphoCandidates').textContent=fmtInteger(status.counts?.liquidationEligibleSnapshots);
+      document.getElementById('morphoCheckpoint').textContent=status.checkpoint?.lastBlock?fmtInteger(status.checkpoint.lastBlock):'—';
+      body.replaceChildren();
+      for(const item of candidates.data||[]){
+        const tr=document.createElement('tr');
+        const hf=Number(item.healthFactorWad)/1e18;
+        const values=[
+          shortAddress(item.borrower),
+          shortAddress(item.marketId),
+          Number.isFinite(hf)?hf.toFixed(5):'—',
+          fmtInteger(item.debtAssets),
+          fmtInteger(item.observedBlock),
+          item.snapshotUpdatedAt?new Date(item.snapshotUpdatedAt).toLocaleString():'—'
+        ];
+        for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td)}
+        body.append(tr);
+      }
+      if(!(candidates.data||[]).length){
+        body.innerHTML='<tr><td colspan="6">No refreshed Morpho borrower snapshots below HF 1 have been stored yet.</td></tr>';
+      }
+      const enabled=status.indexerEnabled?'enabled':'disabled';
+      const checkpoint=status.checkpoint?.lastBlock?fmtInteger(status.checkpoint.lastBlock):'not started';
+      document.getElementById('morphoNote').textContent=
+        'Indexer '+enabled+' · PostgreSQL '+(status.durableStorageConfigured?'configured':'not configured')+
+        ' · checkpoint '+checkpoint+' · '+(status.counts?.borrowersDiscovered??0)+
+        ' discovered borrowers. '+status.warning+' '+candidates.warning;
+    }catch(error){
+      body.innerHTML='<tr><td colspan="6">Morpho data unavailable: '+esc(error instanceof Error?error.message:'Unknown error')+'</td></tr>';
+      document.getElementById('morphoNote').textContent='Check the Morpho indexer configuration and Render logs.';
+    }finally{button.disabled=false}
+  }
   async function loadMarket(){
     const rows=document.getElementById('marketRows');
     const button=document.getElementById('refreshMarket');
@@ -238,6 +300,7 @@
       document.getElementById('opportunityNote').textContent='Check Ethereum RPC configuration and service logs.';
     }finally{button.disabled=false}
   }
+  document.getElementById('refreshMorpho').addEventListener('click',loadMorpho);
   document.getElementById('refreshOpportunities').addEventListener('click',loadOpportunities);
   document.getElementById("refreshMarket").addEventListener("click",loadMarket);
   document.getElementById('borrowerRows').addEventListener('click',async(event)=>{
@@ -322,7 +385,7 @@
     }catch(error){output.textContent='Estimate unavailable: '+(error instanceof Error?error.message:'Unknown error')}
     finally{estimateButton.disabled=false}
   });
-  refresh();loadMarket();loadOpportunities();setInterval(refresh,60000);setInterval(loadMarket,30000);setInterval(loadOpportunities,60000);
+  refresh();loadMarket();loadOpportunities();loadMorpho();setInterval(refresh,60000);setInterval(loadMarket,30000);setInterval(loadOpportunities,60000);setInterval(loadMorpho,60000);
 </script>
 </body>
 </html>

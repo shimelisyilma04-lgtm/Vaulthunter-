@@ -34,6 +34,15 @@ The service already supports PostgreSQL for Aave. The Morpho adapter uses the sa
 
 If you see the local SQLite storage warning in production, stop and check `DATABASE_URL`; the production Morpho factory refuses to start without it.
 
+## Read-only monitoring API
+
+The live API exposes the Morpho PostgreSQL indexer state for the dashboard:
+
+- `GET /api/v1/morpho/status` — market, borrower, candidate counts and the global indexed block checkpoint.
+- `GET /api/v1/morpho/candidates?limit=20` — stored borrower snapshots below health factor 1, ordered by the lowest health factor first.
+
+The API returns loan-token debt in base units, not USD. It does not persist a verified liquidator funding source or DEX route. Candidate rows are historical screening snapshots and must be refreshed at a pinned block before any further analysis.
+
 ## Local commands
 
 ```bash

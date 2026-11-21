@@ -1,6 +1,14 @@
-import type { MorphoBorrower, MorphoCheckpoint, MorphoMarket } from "./store.js";
+import type { MorphoBorrower, MorphoCandidate, MorphoCheckpoint, MorphoMarket } from "./store.js";
 
 type MaybePromise<T> = T | Promise<T>;
+
+export interface MorphoMonitorStats {
+  marketCount: number;
+  borrowerCount: number;
+  candidateCount: number;
+  latestSnapshotBlock: number | null;
+  checkpoint: MorphoCheckpoint | null;
+}
 
 export interface MorphoStorePort {
   upsertMarket(market: MorphoMarket): MaybePromise<void>;
@@ -10,6 +18,8 @@ export interface MorphoStorePort {
   getSnapshotMarketOffset(chainId: number): MaybePromise<number>;
   saveSnapshotMarketOffset(chainId: number, offset: number): MaybePromise<void>;
   listBorrowers(chainId: number, marketId: string, limit: number): MaybePromise<MorphoBorrower[]>;
+  getMonitorStats(chainId: number): MaybePromise<MorphoMonitorStats>;
+  listLiquidationCandidates(chainId: number, limit: number): MaybePromise<MorphoCandidate[]>;
   saveSnapshot(input: {
     chainId: number; marketId: string; address: string; observedBlock: number;
     borrowShares: string; debtAssets: string; collateralAssets: string;

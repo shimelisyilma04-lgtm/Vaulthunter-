@@ -9,7 +9,8 @@ import { runMorphoScanPass } from "./morpho/scanner.js";
 
 const logger = pino({ level: config.LOG_LEVEL });
 const store = new AaveStore(config.VAULTHUNTER_DB_PATH, config.DATABASE_URL);
-const server = startHttpServer(store);
+const morphoStore = config.DATABASE_URL || config.NODE_ENV !== "production" ? createMorphoStore() : undefined;
+const server = startHttpServer(store, morphoStore);
 
 // Base/Arbitrum/Scroll connectivity probe; read-only and never signs or broadcasts.
 void inspectConfiguredNetworks().then((networks) => {
@@ -83,7 +84,10 @@ async function runMorphoIndexerLoop(): Promise<void> {
     logger.warn("ETHEREUM_RPC_URL is missing; Morpho indexing is paused");
     return;
   }
-  const morphoStore = createMorphoStore();
+  if (!morphoStore) {
+    logger.error("Morpho indexer has no configured durable store; indexing is paused");
+    return;
+  }
   logger.info({
     maxMarkets: config.MORPHO_MAX_MARKETS,
     batchBlocks: config.MORPHO_INDEXER_BATCH_BLOCKS,
@@ -110,7 +114,6 @@ async function runMorphoIndexerLoop(): Promise<void> {
       }
     }
   } finally {
-    await morphoStore.close();
     logger.info("Morpho indexer stopped; no transactions were submitted");
   }
 }
@@ -120,7 +123,10 @@ function shutdown(signal: string): void {
   stopping = true;
   logger.info({ signal }, "Shutting down VaultHunter");
   server.close(() => {
-    void Promise.allSettled([store.close(), ...backgroundLoops]).then(() => process.exit(0));
+    void Promise.allSettled(backgroundLoops).then(async () => {
+      await Promise.allSettled([store.close(), ...(morphoStore ? [morphoStore.close()] : [])]);
+      process.exit(0);
+    });
   });
   setTimeout(() => process.exit(1), 10000).unref();
 }
