@@ -41,19 +41,38 @@ function ceilDiv(n: bigint, d: bigint): bigint {
   if (d <= 0n) throw new Error("Division denominator must be positive");
   return n === 0n ? 0n : (n + d - 1n) / d;
 }
-export function aavePercentMul(value: bigint, percentage: bigint): bigint {
+export function aavePercentMulHalfUp(value: bigint, percentage: bigint): bigint {
   return (value * percentage + BPS / 2n) / BPS;
 }
-export function aavePercentDiv(value: bigint, percentage: bigint): bigint {
+export function aavePercentMulFloor(value: bigint, percentage: bigint): bigint {
+  return value * percentage / BPS;
+}
+export function aavePercentMulCeil(value: bigint, percentage: bigint): bigint {
+  return ceilDiv(value * percentage, BPS);
+}
+export function aavePercentDivFloor(value: bigint, percentage: bigint): bigint {
   if (percentage === 0n) throw new Error("Liquidation bonus must be positive");
-  return (value * BPS + percentage / 2n) / percentage;
+  return value * BPS / percentage;
 }
-export function aaveL2CloseFactorBps(healthFactorWad: bigint, totalDebtBase: bigint, minBaseThreshold: bigint | null): bigint {
+export function aaveL2CloseFactorBps(
+  healthFactorWad: bigint,
+  debtReserveBase: bigint,
+  collateralReserveBase: bigint,
+  minBaseThreshold: bigint | null
+): bigint | null {
+  if (minBaseThreshold === null) return null;
   return healthFactorWad > 95n * WAD / 100n &&
-    (minBaseThreshold === null || totalDebtBase > minBaseThreshold) ? 5_000n : 10_000n;
+    debtReserveBase >= minBaseThreshold &&
+    collateralReserveBase >= minBaseThreshold ? 5_000n : 10_000n;
 }
-export function aaveL2UsesEModePrice(userCategory: number, reserveCategory: number, priceSource: string): boolean {
-  return userCategory > 0 && reserveCategory === userCategory && priceSource.toLowerCase() !== ZERO;
+export function aaveL2UsesEModePrice(
+  userCategory: number,
+  reserveCategory: number,
+  priceSource: string,
+  asCollateral: boolean
+): boolean {
+  return userCategory > 0 && priceSource.toLowerCase() !== ZERO &&
+    (!asCollateral || reserveCategory === userCategory);
 }
 export function aaveL2DustSatisfied(
   debtRemainingBase: bigint,
@@ -262,7 +281,7 @@ export async function inspectAaveL2ReservePositions(args: {
     }
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
-      if (eModeData && aaveL2UsesEModePrice(userEModeCategory, asset.eModeCategory, eModeData.priceSource)) {
+      if (eModeData && aaveL2UsesEModePrice(userEModeCategory, asset.eModeCategory, eModeData.priceSource, asCollateral)) {
         return asBigInt(await oracle.getFunction("getAssetPrice").staticCall(eModeData.priceSource, { blockTag: observedBlock }), "eMode price");
       }
       return BigInt(asset.priceBase);
@@ -283,27 +302,28 @@ export async function inspectAaveL2ReservePositions(args: {
         if (bonus <= BPS) continue;
         const collateralUnit = 10n ** BigInt(collateral.decimals);
         const debtUnit = 10n ** BigInt(debt.decimals);
-        const debtBase = ceilDiv(BigInt(debt.totalDebt) * debtPrice, debtUnit);
+        const debtBase = BigInt(debt.totalDebt) * debtPrice / debtUnit;
         const collateralBase = BigInt(collateral.collateralBalance) * collateralPrice / collateralUnit;
         const totalDebtBase = asBigInt(account[1], "total debt base");
-        let maxDebtBase = BigInt(debt.totalDebt) * debtPrice / debtUnit;
-        const closeFactorBps = aaveL2CloseFactorBps(hf, totalDebtBase, minBaseThreshold);
+        let maxDebtBase = debtBase;
+        const closeFactorBps = aaveL2CloseFactorBps(hf, debtBase, collateralBase, minBaseThreshold);
+        if (closeFactorBps === null) continue;
         if (closeFactorBps === 5_000n) {
-          const halfAccountDebt = (totalDebtBase * 5_000n + 5_000n) / BPS;
+          const halfAccountDebt = aavePercentMulHalfUp(totalDebtBase, 5_000n);
           if (debtBase > halfAccountDebt) maxDebtBase = halfAccountDebt;
         }
         const requestedDebt = maxDebtBase * debtUnit / debtPrice;
         const baseCollateral = debtPrice * requestedDebt * collateralUnit / (collateralPrice * debtUnit);
-        const maxCollateral = aavePercentMul(baseCollateral, bonus);
+        const maxCollateral = aavePercentMulFloor(baseCollateral, bonus);
         let seized = maxCollateral;
         let actualDebt = requestedDebt;
         if (maxCollateral > BigInt(collateral.collateralBalance)) {
           seized = BigInt(collateral.collateralBalance);
           const debtValue = collateralPrice * seized * debtUnit / (debtPrice * collateralUnit);
-          actualDebt = aavePercentDiv(debtValue, bonus);
+          actualDebt = aavePercentDivFloor(debtValue, bonus);
         }
-        const bonusCollateral = seized - (seized * BPS / bonus);
-        const protocolFee = aavePercentMul(bonusCollateral, BigInt(collateral.liquidationProtocolFeeBps));
+        const bonusCollateral = seized - aavePercentDivFloor(seized, bonus);
+        const protocolFee = aavePercentMulCeil(bonusCollateral, BigInt(collateral.liquidationProtocolFeeBps));
         const netCollateral = seized - protocolFee;
         const debtRemaining = BigInt(debt.totalDebt) - actualDebt;
         const collateralRemaining = BigInt(collateral.collateralBalance) - seized;
@@ -338,7 +358,7 @@ export async function inspectAaveL2ReservePositions(args: {
       }
     }
     const blockPriceSourceWarning = userEModeCategory > 0 && eModeData?.priceSource !== ZERO
-      ? "eMode priceSource override was applied to debt prices and matching-category collateral prices."
+      ? "eMode priceSource override was applied to debt prices and matching-category collateral prices, matching Aave eMode liquidation logic."
       : "";
     return {
       network: args.network, chainId: deployment.chainId, pool: poolAddress, oracle: oracleAddress,
@@ -352,7 +372,7 @@ export async function inspectAaveL2ReservePositions(args: {
       minLeftoverBase: minLeftover?.toString() ?? null, reserves, pairs,
       warnings: [
         "All Aave account, reserve, token-balance, price, eMode and flash-premium reads use one confirmed block.",
-        "The calculator fails closed when the deployed Pool does not expose the minimum-leftover threshold; close-factor selection uses the account-wide debt threshold and health factor when available. Exact Pool revision and scaled-token rounding must still pass fork simulation.",
+        "The calculator fails closed when the deployed Pool does not expose MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD or MIN_LEFTOVER_BASE. Close-factor selection uses the specific debt-reserve and collateral-reserve base values, not total account debt. The rounding profile follows the current aave-v3-origin liquidation logic and still requires deployed-implementation fork verification.",
         "Flash-loan liquidity is a point-in-time underlying balance and can change before execution.",
         blockPriceSourceWarning,
         "This endpoint does not sign, broadcast, or submit transactions."
