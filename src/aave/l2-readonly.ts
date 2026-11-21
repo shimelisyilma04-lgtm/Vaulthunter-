@@ -52,6 +52,7 @@ export async function inspectAaveL2Borrower(args: {
     }
     const addressesProvider = new Contract(market.addressesProvider, PROVIDER_ABI, provider);
     const poolAddress = getAddress(await addressesProvider.getFunction("getPool")() as string);
+    if (poolAddress !== getAddress(deployment.expectedPool)) throw new Error("Aave Pool proxy does not match the pinned official deployment address for " + args.network + ".");
     const pool = new Contract(poolAddress, POOL_ABI, provider);
     const observedBlock = await provider.getBlockNumber();
     const account = await pool.getFunction("getUserAccountData")(
