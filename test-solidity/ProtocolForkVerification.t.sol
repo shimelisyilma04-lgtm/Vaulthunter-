@@ -48,6 +48,7 @@ interface IMorphoBlueFork {
     function idToMarketParams(bytes32 id) external view returns (MarketParams memory);
     function market(bytes32 id) external view returns (Market memory);
     function accrueInterest(MarketParams calldata marketParams) external;
+    function liquidate(MarketParams calldata marketParams,address borrower,uint256 seizedAssets,uint256 repaidShares,bytes calldata data) external returns (uint256 seizedAssetsOut,uint256 repaidAssetsOut);
 }
 
 interface IMorphoIrmFork {
