@@ -8,7 +8,7 @@ function input(overrides: Record<string, string> = {}) {
   return {
     lltvWad: (86n * WAD / 100n).toString(),
     oraclePrice: SCALE.toString(),
-    totalBorrowAssets: "1000000",
+    totalBorrowAssets: "999999",
     totalBorrowShares: "1000000000000000000",
     positionBorrowShares: "870000000000000000",
     collateralAssets: "1000000",
