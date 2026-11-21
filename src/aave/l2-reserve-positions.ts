@@ -296,6 +296,9 @@ export async function inspectAaveL2ReservePositions(args: {
       const batch = reserveAddresses.slice(i, i + 1);
       const rows = await Promise.all(batch.map(async (assetRaw, j) => {
         const reserveIndex = i + j;
+        const collateralEnabled = ((userBitmap >> BigInt(2 * reserveIndex + 1)) & 1n) === 1n;
+        const borrowing = ((userBitmap >> BigInt(2 * reserveIndex)) & 1n) === 1n;
+        if (!collateralEnabled && !borrowing) return null;
         const asset = getAddress(assetRaw);
         const [reserveRaw, priceRaw, decimalsRaw, symbolRaw] = await Promise.all([
           pool.getFunction("getReserveData").staticCall(asset, { blockTag: observedBlock }),
@@ -308,13 +311,11 @@ export async function inspectAaveL2ReservePositions(args: {
         const config = asBigInt(reserveTuple[0], "reserve configuration");
         const reserveData = reserveRaw as readonly unknown[];
         const reserveId = Number(asBigInt(reserveData[7], "reserve id"));
+        if (reserveId !== reserveIndex) throw new Error("Aave reserve ID does not match user-configuration bitmap index");
         const aToken = getAddress(String(reserveData[8]));
         const stableDebtToken = getAddress(String(reserveData[9]));
         const variableDebtToken = getAddress(String(reserveData[10]));
         const decimals = Number(asBigInt(decimalsRaw, "token decimals"));
-        const collateralEnabled = ((userBitmap >> BigInt(2 * reserveId + 1)) & 1n) === 1n;
-        const borrowing = ((userBitmap >> BigInt(2 * reserveId)) & 1n) === 1n;
-        if (!collateralEnabled && !borrowing) return null;
         const [collateralRaw, stableRaw, variableRaw, flashLiquidityRaw] = await Promise.all([
           new Contract(aToken, ERC20_ABI, provider).getFunction("balanceOf").staticCall(borrower, { blockTag: observedBlock }),
           stableDebtToken === ZERO || stableDebtToken.toLowerCase() === mockStableDebtAddress.toLowerCase() ? 0n : new Contract(stableDebtToken, ERC20_ABI, provider).getFunction("balanceOf").staticCall(borrower, { blockTag: observedBlock }),
@@ -344,7 +345,7 @@ export async function inspectAaveL2ReservePositions(args: {
         } satisfies AaveL2ReservePosition;
       }));
       reserves.push(...rows.filter((row): row is AaveL2ReservePosition => row !== null));
-      if (i + 1 < reserveAddresses.length) await new Promise((resolve) => setTimeout(resolve, 250));
+      if (i + 1 < reserveAddresses.length) await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
