@@ -41,7 +41,7 @@ npm run morpho:scan
 
 The continuous command resumes historical event discovery and refreshes rotating borrower snapshots. The health-factor result is a screening signal: Morpho market borrow totals accrue lazily, so accrued interest must be incorporated and the position re-read at a pinned block before any execution decision. See [Morpho scanner instructions](docs/MORPHO_SCANNER.md).
 
-## Other commands
+## Validation gates\n\n`src/domain/validation.ts` provides fail-closed evidence checks for future liquidation quote and simulation adapters. It rejects stale or mixed-block evidence, missing protocol accounting, failed simulations and insufficient estimated net profit. A passing result is only `simulation_review`; it never authorizes a transaction. See [validation gate requirements](docs/VALIDATION_GATES.md).\n\n## Other commands
 
 ```bash
 npm run typecheck
