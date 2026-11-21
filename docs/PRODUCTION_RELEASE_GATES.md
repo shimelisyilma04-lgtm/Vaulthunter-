@@ -74,7 +74,8 @@ An internal code review, a green CI run, or this checklist does not substitute f
 
 ## Evidence currently available
 
-- The Foundry local-fork test for the Base Morpho market accrual compared the TypeScript-equivalent three-term fixed-point calculation with the deployed Morpho core's post-`accrueInterest` market total and passed on the observed fork.
-- The first Aave fork attempt confirmed the configured provider-to-Pool mapping and EIP-1967 implementation addresses on both networks. It also showed direct `getRevision()` calls revert, so that getter is not used as a version signal.
+- The Foundry local-fork run passed Base and Arbitrum Aave deployment identity checks: Addresses Provider -> Pool proxy, EIP-1967 implementation slot, non-empty implementation bytecode, and reserve list.
+- The same run passed Base Morpho accrual differential: the three-term fixed-point result matched the deployed Morpho core's post-`accrueInterest` market total. Arbitrum Morpho accrual was skipped because a verified live market ID has not yet been configured.
+- Direct `getRevision()` calls reverted on both Aave Pool proxies in the first fork attempt, so that getter is not used as a version signal.
 - The Aave selected-reserve close-factor helper was corrected and unit tests were updated. Fork differential verification against valid borrowers is still outstanding.
 - The mock executor harness has passed in earlier CI runs. It is not production executor code.
