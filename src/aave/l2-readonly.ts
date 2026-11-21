@@ -8,11 +8,13 @@ const POOL_ABI = [
 export const AAVE_V3_MARKETS = {
   base: {
     chainId: 8453,
-    addressesProvider: "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
+    addressesProvider: "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D",
+    expectedPool: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5"
   },
   arbitrum: {
     chainId: 42161,
-    addressesProvider: "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
+    addressesProvider: "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
+    expectedPool: "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
   }
 } as const;
 
