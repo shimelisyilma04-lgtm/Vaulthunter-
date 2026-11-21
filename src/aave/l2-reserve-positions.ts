@@ -344,8 +344,11 @@ export async function inspectAaveL2ReservePositions(args: {
           flashLoanEnabled, flashLoanLiquidity: asBigInt(flashLiquidityRaw, "flash-loan liquidity").toString()
         } satisfies AaveL2ReservePosition;
       }));
-      reserves.push(...rows.filter((row): row is AaveL2ReservePosition => row !== null));
-      if (i + 1 < reserveAddresses.length) await new Promise((resolve) => setTimeout(resolve, 500));
+      const activeRows = rows.filter((row): row is AaveL2ReservePosition => row !== null);
+      reserves.push(...activeRows);
+      if (activeRows.length > 0 && i + 1 < reserveAddresses.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
     }
 
     const priceFor = async (asset: AaveL2ReservePosition, asCollateral: boolean): Promise<bigint> => {
