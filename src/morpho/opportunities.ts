@@ -6,6 +6,12 @@ import type { MorphoStorePort } from "./store-port.js";
 import { quoteUniswapV3BestExactInput } from "../aave/uniswap-quote.js";
 
 const MORPHO = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
+const AAVE_V3_POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
+const AAVE_POOL_ABI = [
+  "function getReserveData(address asset) view returns (tuple(uint256 configuration,uint128 liquidityIndex,uint128 currentLiquidityRate,uint128 variableBorrowIndex,uint128 currentVariableBorrowRate,uint128 currentStableBorrowRate,uint40 lastUpdateTimestamp,uint16 id,address aTokenAddress,address stableDebtTokenAddress,address variableDebtTokenAddress,address interestRateStrategyAddress,uint128 accruedToTreasury,uint128 unbacked,uint128 isolationModeTotalDebt))",
+  "function getConfiguration(address asset) view returns (uint256 data)",
+  "function FLASHLOAN_PREMIUM_TOTAL() view returns (uint128)"
+];
 const MORPHO_ABI = [
   "function idToMarketParams(bytes32 id) view returns (address loanToken,address collateralToken,address oracle,address irm,uint256 lltv)",
   "function market(bytes32 id) view returns (uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee)",
@@ -13,7 +19,7 @@ const MORPHO_ABI = [
 ];
 const ORACLE_ABI = ["function price() view returns (uint256)"];
 const IRM_ABI = ["function borrowRateView((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,(uint128 totalSupplyAssets,uint128 totalSupplyShares,uint128 totalBorrowAssets,uint128 totalBorrowShares,uint128 lastUpdate,uint128 fee) market) view returns (uint256)"];
-const ERC20_ABI = ["function decimals() view returns (uint8)", "function symbol() view returns (string)"];
+const ERC20_ABI = ["function decimals() view returns (uint8)", "function symbol() view returns (string)", "function balanceOf(address) view returns (uint256)"];
 const WAD = 10n ** 18n;
 const PRICE_SCALE = 10n ** 36n;
 
@@ -123,8 +129,34 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         } catch (error) {
           reasons.push("Collateral exit quote unavailable: " + (error instanceof Error ? error.message.slice(0, 180) : "unknown quote error"));
         }
-        reasons.push("Liquidator funding source is not configured or independently verified");
-        reasons.push("Flash-loan availability and fee are not verified");
+        let flashFunding: Record<string, unknown> = { status: "unverified", provider: "Aave V3 Ethereum", availableAssets: null, premiumBps: null, estimatedFeeAssets: null };
+        try {
+          const aave = new Contract(AAVE_V3_POOL, AAVE_POOL_ABI, provider);
+          const [reserve, configuration, premiumRaw] = await Promise.all([
+            aave.getFunction("getReserveData")(loanToken, { blockTag: blockNumber }),
+            aave.getFunction("getConfiguration")(loanToken, { blockTag: blockNumber }),
+            aave.getFunction("FLASHLOAN_PREMIUM_TOTAL")({ blockTag: blockNumber })
+          ]) as [readonly unknown[], bigint, bigint];
+          const reserveConfig = BigInt(configuration as bigint);
+          const active = ((reserveConfig >> 56n) & 1n) === 1n;
+          const paused = ((reserveConfig >> 60n) & 1n) === 1n;
+          const flashLoanEnabled = ((reserveConfig >> 63n) & 1n) === 1n;
+          const aTokenAddress = getAddress(String(reserve[8]));
+          const reserveBalance = BigInt(await new Contract(loanToken, ERC20_ABI, provider).getFunction("balanceOf")(aTokenAddress, { blockTag: blockNumber }));
+          const premiumBps = BigInt(premiumRaw as bigint);
+          const estimatedFeeAssets = quote.repaidAssets * premiumBps / 10000n;
+          const available = active && !paused && flashLoanEnabled && reserveBalance >= quote.repaidAssets;
+          flashFunding = {
+            status: available ? "reserve-liquidity-verified-at-snapshot" : "unavailable-or-insufficient",
+            provider: "Aave V3 Ethereum flashLoanSimple reserve",
+            aTokenAddress, reserveAvailableAssets: reserveBalance.toString(),
+            requiredAssets: quote.repaidAssets.toString(), sufficient: available,
+            premiumBps: premiumBps.toString(), estimatedFeeAssets: estimatedFeeAssets.toString()
+          };
+          if (!available) reasons.push("Aave V3 reserve is inactive, paused, flash-loan-disabled, or has insufficient liquidity");
+        } catch (error) {
+          reasons.push("Aave V3 flash-loan reserve could not be verified: " + (error instanceof Error ? error.message.slice(0, 160) : "unknown error"));
+        }
         reasons.push("Gas cost cannot yet be converted into the loan-token denomination");
         reasons.push("A single-pool quote is not a full transaction simulation");
         const marketLiquidity = {
@@ -145,9 +177,16 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           estimatedRepaidAssets: quote.repaidAssets.toString(),
           estimatedSeizedCollateral: quote.seizedAssets.toString(),
           marketLiquidity, collateralExitQuote: swapQuote,
-          funding: { status: "unverified", provider: null, flashLoanFee: null },
+          funding: flashFunding,
           gas: { status: "unpriced", gasUnitsFromQuote: swapQuote?.gasEstimate ?? null, gasPriceWei: (await provider.getFeeData()).gasPrice?.toString() ?? null },
-          profitability: { status: "not-computable", grossSwapOutputLoanToken: swapQuote?.amountOut ?? null, netProfitLoanToken: null, reasons },
+          profitability: {
+            status: "pre-gas-estimate-only",
+            grossSwapOutputLoanToken: swapQuote?.amountOut ?? null,
+            estimatedFlashLoanFeeLoanToken: flashFunding.estimatedFeeAssets ?? null,
+            preGasProfitLoanToken: typeof swapQuote?.amountOut === "string" && typeof flashFunding.estimatedFeeAssets === "string"
+              ? (BigInt(swapQuote.amountOut) - quote.repaidAssets - BigInt(flashFunding.estimatedFeeAssets)).toString() : null,
+            netProfitLoanToken: null, reasons
+          },
           reasons, executionEnabled: false, transactionSubmitted: false
         });
       } catch (error) {
