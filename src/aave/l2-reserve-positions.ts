@@ -164,6 +164,7 @@ export async function inspectAaveL2ReservePositions(args: {
     const userBitmap = asBigInt((userConfigRaw as readonly [bigint])[0], "user configuration");
     const reserveAddresses = reservesRaw as readonly string[];
     const baseUnit = asBigInt(baseUnitRaw, "base currency unit");
+    const baseCurrencyAddress = getAddress(String(baseCurrencyRaw));
     const userEModeCategory = Number(asBigInt(eModeRaw, "user eMode"));
     if (baseUnit === 0n) throw new Error("Aave returned a zero base-currency unit");
     const flashLoanPremiumBps = asBigInt(flashPremiumRaw, "flash-loan premium");
@@ -173,7 +174,12 @@ export async function inspectAaveL2ReservePositions(args: {
       minBaseThreshold = asBigInt(await pool.getFunction("MIN_BASE_MAX_CLOSE_FACTOR_THRESHOLD").staticCall({ blockTag: observedBlock }), "minimum close-factor threshold");
       minLeftover = asBigInt(await pool.getFunction("MIN_LEFTOVER_BASE").staticCall({ blockTag: observedBlock }), "minimum leftover");
     } catch {
-      // Older Pool implementations do not expose the V3.3 threshold getters.
+      // The V3.3 liquidation constants are library internals, not guaranteed Pool getters.
+    }
+    if (minLeftover === null && baseCurrencyAddress === ZERO) {
+      // Aave V3.3+ documents MIN_LEFTOVER_BASE as half of 2,000 USD base units.
+      // Keep the 50% close factor unless the Pool exposes its threshold; this is conservative.
+      minLeftover = 1_000n * baseUnit;
     }
     let eModeData: { liquidationBonusBps: string; priceSource: string } | null = null;
     if (userEModeCategory > 0) {
@@ -330,7 +336,7 @@ export async function inspectAaveL2ReservePositions(args: {
     return {
       network: args.network, chainId: deployment.chainId, pool: poolAddress, oracle: oracleAddress,
       user: borrower, observedBlock, blockTimestamp: block.timestamp,
-      baseCurrency: getAddress(String(baseCurrencyRaw)), baseCurrencyUnit: baseUnit.toString(),
+      baseCurrency: baseCurrencyAddress, baseCurrencyUnit: baseUnit.toString(),
       totalCollateralBase: asBigInt(account[0], "total collateral base").toString(),
       totalDebtBase: asBigInt(account[1], "total debt base").toString(),
       healthFactorWad: hf.toString(), liquidationEligible: hf > 0n && hf < WAD,
@@ -339,7 +345,7 @@ export async function inspectAaveL2ReservePositions(args: {
       minLeftoverBase: minLeftover?.toString() ?? null, reserves, pairs,
       warnings: [
         "All Aave account, reserve, token-balance, price, eMode and flash-premium reads use one confirmed block.",
-        "The calculator mirrors reserve-level debt/collateral limits and known Pool close-factor/dust getters; exact scaled-token rounding and chain-specific Pool implementation behavior must still pass fork simulation.",
+        "The calculator mirrors reserve-level debt/collateral limits and applies a conservative 1,000-base-unit leftover guard for USD-base markets; exact Pool revision, close-factor version, scaled-token rounding and chain-specific behavior must still pass fork simulation.",
         "Flash-loan liquidity is a point-in-time underlying balance and can change before execution.",
         blockPriceSourceWarning,
         "This endpoint does not sign, broadcast, or submit transactions."
