@@ -156,12 +156,11 @@ contract ProtocolForkVerificationTest {
         require(pool == expectedPool, "AAVE_FIXTURE_POOL");
         (,,,,, uint256 healthFactor) = IAavePoolFork(pool).getUserAccountData(borrower);
         require(healthFactor < 1e18, "AAVE_FIXTURE_BORROWER_HEALTHY");
-        uint256 debtBefore = IERC20Fork(debt).balanceOf(address(this));
         uint256 collateralBefore = IERC20Fork(collateral).balanceOf(address(this));
         vm.deal(debt, address(this), amount);
         require(IERC20Fork(debt).approve(pool, amount), "AAVE_FIXTURE_APPROVE");
         IAavePoolFork(pool).liquidationCall(collateral, debt, borrower, amount, false);
-        require(IERC20Fork(debt).balanceOf(address(this)) < debtBefore + amount, "AAVE_FIXTURE_NO_DEBT_SPENT");
+        require(IERC20Fork(debt).balanceOf(address(this)) < amount, "AAVE_FIXTURE_NO_DEBT_SPENT");
         require(IERC20Fork(collateral).balanceOf(address(this)) > collateralBefore, "AAVE_FIXTURE_NO_COLLATERAL_RECEIVED");
     }
 
@@ -195,14 +194,12 @@ contract ProtocolForkVerificationTest {
         require(repaidShares > 0, "MORPHO_FIXTURE_SHARES_ZERO");
         IMorphoBlueFork morpho = IMorphoBlueFork(morphoAddress);
         IMorphoBlueFork.MarketParams memory params = morpho.idToMarketParams(marketId);
-        uint256 loanBefore = IERC20Fork(params.loanToken).balanceOf(address(this));
         uint256 collateralBefore = IERC20Fork(params.collateralToken).balanceOf(address(this));
         vm.deal(params.loanToken, address(this), type(uint128).max);
         require(IERC20Fork(params.loanToken).approve(morphoAddress, type(uint128).max), "MORPHO_FIXTURE_APPROVE");
         morpho.liquidate(params, borrower, 0, repaidShares, "");
         require(IERC20Fork(params.loanToken).balanceOf(address(this)) < type(uint128).max, "MORPHO_FIXTURE_NO_LOAN_SPENT");
         require(IERC20Fork(params.collateralToken).balanceOf(address(this)) > collateralBefore, "MORPHO_FIXTURE_NO_COLLATERAL_RECEIVED");
-        loanBefore; // retained for trace readability; the balance is reset by deal above.
     }
 
     function _parseAddress(string memory value) private pure returns (address result) {
