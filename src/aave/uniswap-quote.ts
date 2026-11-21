@@ -196,7 +196,8 @@ export function enumerateUniswapV3FeeTiers(hops: number): number[][] {
 
 export async function quoteUniswapV3BestPath(
   rpcUrl: string,
-  input: { tokens: string[]; amountIn: string }
+  input: { tokens: string[]; amountIn: string },
+  validationBlock?: number
 ): Promise<{
   chainId: 1;
   blockNumber: number;
@@ -205,6 +206,7 @@ export async function quoteUniswapV3BestPath(
   selectedFees: number[] | null;
   amountOut: string | null;
   gasEstimate: string | null;
+  blockHash: string;
   candidatesChecked: number;
   candidates: Array<{ fees: number[]; amountOut: string | null; gasEstimate: string | null; available: boolean; error?: string }>;
   source: "uniswap-v3-quoter-v2-multi-hop";
@@ -225,7 +227,9 @@ export async function quoteUniswapV3BestPath(
   try {
     const network = await provider.getNetwork();
     if (network.chainId !== 1n) throw new Error("Uniswap V3 path quotes require Ethereum mainnet (chain ID 1)");
-    const blockNumber = await provider.getBlockNumber();
+    const blockNumber = validationBlock ?? await provider.getBlockNumber();
+    const pinnedBlock = await provider.getBlock(blockNumber);
+    if (!pinnedBlock?.hash) throw new Error("Unable to load pinned multi-hop quote block hash");
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, provider);
     const combinations = enumerateUniswapV3FeeTiers(tokens.length - 1);
     const candidates = await Promise.all(combinations.map(async (fees) => {
@@ -240,6 +244,7 @@ export async function quoteUniswapV3BestPath(
         const quote = await quoter.getFunction("quoteExactInput").staticCall(
           path, BigInt(input.amountIn), { blockTag: blockNumber }
         ) as readonly [bigint, readonly bigint[], readonly number[], bigint];
+        if (quote[0] <= 0n) return { fees, amountOut: "0", gasEstimate: quote[3].toString(), available: false as const, error: "Route returned zero output for this input amount" };
         return { fees, amountOut: quote[0].toString(), gasEstimate: quote[3].toString(), available: true as const };
       } catch (error) {
         return {
@@ -254,6 +259,7 @@ export async function quoteUniswapV3BestPath(
     return {
       chainId: 1,
       blockNumber,
+      blockHash: pinnedBlock.hash,
       tokens,
       amountIn: input.amountIn,
       selectedFees: best?.fees ?? null,
@@ -268,4 +274,54 @@ export async function quoteUniswapV3BestPath(
   } finally {
     await provider.destroy();
   }
+}
+
+
+const UNISWAP_ROUTE_BRIDGES = [
+  "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+  "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDC
+  "0xdAC17F958D2ee523a2206206994597C13D831ec7", // USDT
+  "0x6B175474E89094C44Da98b954EedeAC495271d0F"  // DAI
+] as const;
+
+export async function quoteUniswapV3BestRoute(
+  rpcUrl: string,
+  input: { tokenIn: string; tokenOut: string; amountIn: string },
+  validationBlock: number
+): Promise<Record<string, unknown> & { blockNumber: number; blockHash: string; amountOut: string | null; gasEstimate: string | null }> {
+  const direct = await quoteUniswapV3BestExactInput(rpcUrl, input, validationBlock);
+  if (direct.amountOut !== null && BigInt(direct.amountOut) > 0n) {
+    return { ...direct, routeType: "direct", routeTokens: [getAddress(input.tokenIn), getAddress(input.tokenOut)] };
+  }
+  const bridges = UNISWAP_ROUTE_BRIDGES.filter((address) =>
+    address.toLowerCase() !== input.tokenIn.toLowerCase() && address.toLowerCase() !== input.tokenOut.toLowerCase()
+  );
+  const paths = await Promise.all(bridges.map(async (bridge) => {
+    try {
+      return await quoteUniswapV3BestPath(rpcUrl, {
+        tokens: [input.tokenIn, bridge, input.tokenOut], amountIn: input.amountIn
+      }, validationBlock);
+    } catch (error) {
+      return { blockNumber: validationBlock, blockHash: "", tokens: [input.tokenIn, bridge, input.tokenOut], amountOut: null, gasEstimate: null,
+        selectedFees: null, candidatesChecked: 0, candidates: [], error: error instanceof Error ? error.message.slice(0, 180) : "Path quote failed" };
+    }
+  }));
+  const valid = paths.filter((path) => path.amountOut !== null && BigInt(path.amountOut) > 0n && path.blockHash.length > 0);
+  const best = valid.reduce<typeof valid[number] | null>((current, path) =>
+    current === null || BigInt(path.amountOut!) > BigInt(current.amountOut!) ? path : current, null);
+  if (best) {
+    return {
+      chainId: 1, blockNumber: best.blockNumber, blockHash: best.blockHash,
+      tokenIn: getAddress(input.tokenIn), tokenOut: getAddress(input.tokenOut), amountIn: input.amountIn,
+      selectedFee: null, selectedFees: best.selectedFees, amountOut: best.amountOut, gasEstimate: best.gasEstimate,
+      initializedTicksCrossed: null, candidates: direct.candidates, pathCandidates: paths,
+      routeType: "two-hop", routeTokens: best.tokens, source: "uniswap-v3-quoter-v2-multi-hop",
+      executionEnabled: false,
+      warning: "Best two-hop Uniswap V3 quote across WETH, USDC, USDT and DAI bridges. Quote only; not a full liquidation transaction simulation."
+    };
+  }
+  return {
+    ...direct, routeType: "no-route", routeTokens: null, pathCandidates: paths,
+    amountOut: null, gasEstimate: null
+  };
 }
