@@ -1,5 +1,6 @@
 import { Contract, JsonRpcProvider, getAddress } from "ethers";
 import { AAVE_V3_MARKETS, type AaveL2Network } from "./l2-readonly.js";
+import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 
 const PROVIDER_ABI = [
   "function getPool() view returns (address)",
@@ -91,6 +92,8 @@ export interface AaveL2LiquidationPair {
   flashLoanPremiumBps: string;
   flashLoanAvailable: boolean;
   estimatedGrossBonusBase: string;
+  collateralPriceBase: string;
+  debtPriceBase: string;
 }
 export interface AaveL2ReserveSnapshot {
   network: AaveL2Network;
@@ -316,7 +319,8 @@ export async function inspectAaveL2ReservePositions(args: {
           liquidationProtocolFeeBps: collateral.liquidationProtocolFeeBps,
           closeFactorBps: closeFactorBps.toString(), dustRuleSatisfied: dustSatisfied,
           dustRule, flashLoanPremiumBps: flashLoanPremiumBps.toString(),
-          flashLoanAvailable: flashAvailable, estimatedGrossBonusBase: grossBonusBase.toString()
+          flashLoanAvailable: flashAvailable, estimatedGrossBonusBase: grossBonusBase.toString(),
+          collateralPriceBase: collateralPrice.toString(), debtPriceBase: debtPrice.toString()
         });
       }
     }
@@ -340,6 +344,126 @@ export async function inspectAaveL2ReservePositions(args: {
         blockPriceSourceWarning,
         "This endpoint does not sign, broadcast, or submit transactions."
       ].filter(Boolean)
+    };
+  } finally {
+    await provider.destroy();
+  }
+}
+
+
+export interface AaveL2PairProfitInput {
+  snapshot: AaveL2ReserveSnapshot;
+  pair: AaveL2LiquidationPair;
+  rpcUrl: string;
+  gasUnits: string;
+  slippageBps: number;
+  mevBudgetDebtTokenUnits: string;
+  builderFeeDebtTokenUnits: string;
+  safetyBufferBps: number;
+}
+export async function estimateAaveL2PairNetProfit(input: AaveL2PairProfitInput): Promise<{
+  network: AaveL2Network;
+  observedBlock: number;
+  collateralToDebtQuote: string | null;
+  quoteFeeTier: number | null;
+  quoteBlock: number | null;
+  gasCostDebtTokenUnits: string;
+  flashLoanFeeDebtTokenUnits: string;
+  slippageHaircutDebtTokenUnits: string;
+  mevBudgetDebtTokenUnits: string;
+  builderFeeDebtTokenUnits: string;
+  safetyBufferDebtTokenUnits: string;
+  estimatedNetProfitDebtTokenUnits: string | null;
+  positiveAfterAllBudgets: boolean;
+  flashLoanAvailable: boolean;
+  source: string;
+  warnings: string[];
+}> {
+  const uint = (value: string, label: string): bigint => {
+    if (!/^(0|[1-9][0-9]*)$/.test(value) || value.length > 78) throw new Error(label + " must be an unsigned integer string");
+    return BigInt(value);
+  };
+  const bps = (value: number, label: string): bigint => {
+    if (!Number.isInteger(value) || value < 0 || value >= 10_000) throw new Error(label + " must be 0-9999 bps");
+    return BigInt(value);
+  };
+  const ceil = (n: bigint, d: bigint) => n === 0n ? 0n : (n + d - 1n) / d;
+  const gasUnits = uint(input.gasUnits, "gasUnits");
+  const mevBudget = uint(input.mevBudgetDebtTokenUnits, "mevBudgetDebtTokenUnits");
+  const builderFee = uint(input.builderFeeDebtTokenUnits, "builderFeeDebtTokenUnits");
+  const slippageBps = bps(input.slippageBps, "slippageBps");
+  const safetyBps = bps(input.safetyBufferBps, "safetyBufferBps");
+  const debt = input.snapshot.reserves.find((r) => r.asset.toLowerCase() === input.pair.debtAsset.toLowerCase());
+  if (!debt) throw new Error("Debt reserve was not present in the pinned Aave snapshot");
+  const debtUnit = 10n ** BigInt(input.pair.debtDecimals);
+  const debtPrice = uint(input.pair.debtPriceBase, "debtPriceBase");
+  if (debtPrice === 0n) throw new Error("Debt reserve oracle price is zero");
+  const flashFee = ceil(uint(input.pair.actualDebtToCover, "actualDebtToCover") *
+    uint(input.pair.flashLoanPremiumBps, "flashLoanPremiumBps"), BPS);
+  const provider = new JsonRpcProvider(input.rpcUrl);
+  try {
+    const network = await provider.getNetwork();
+    if (network.chainId !== BigInt(input.snapshot.chainId)) throw new Error("RPC chain changed since the snapshot");
+    const feeData = await provider.getFeeData();
+    const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice;
+    if (maxFeePerGas === null) throw new Error("RPC did not provide a gas price");
+    const wrappedNative = input.snapshot.network === "base"
+      ? "0x4200000000000000000000000000000000000006"
+      : "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1";
+    const oracle = new Contract(input.snapshot.oracle, ORACLE_ABI, provider);
+    const nativePrice = uint(String(await oracle.getFunction("getAssetPrice").staticCall(
+      wrappedNative, { blockTag: input.snapshot.observedBlock }
+    )), "native asset oracle price");
+    const gasCostBase = ceil(gasUnits * maxFeePerGas * nativePrice, WAD);
+    const gasCostDebtUnits = ceil(gasCostBase * debtUnit, debtPrice);
+    const quote = await quoteMultiChainUniswapV3({
+      network: input.snapshot.network,
+      rpcUrl: input.rpcUrl,
+      tokenIn: input.pair.collateralAsset,
+      tokenOut: input.pair.debtAsset,
+      amountIn: input.pair.netCollateralReceived,
+      blockNumber: input.snapshot.observedBlock
+    });
+    if (quote.amountOut === null) {
+      return {
+        network: input.snapshot.network, observedBlock: input.snapshot.observedBlock,
+        collateralToDebtQuote: null, quoteFeeTier: null, quoteBlock: quote.blockNumber,
+        gasCostDebtTokenUnits: gasCostDebtUnits.toString(),
+        flashLoanFeeDebtTokenUnits: flashFee.toString(),
+        slippageHaircutDebtTokenUnits: "0", mevBudgetDebtTokenUnits: mevBudget.toString(),
+        builderFeeDebtTokenUnits: builderFee.toString(), safetyBufferDebtTokenUnits: "0",
+        estimatedNetProfitDebtTokenUnits: null, positiveAfterAllBudgets: false,
+        flashLoanAvailable: input.pair.flashLoanAvailable, source: "uniswap-v3-quoter-v2",
+        warnings: ["No direct Uniswap V3 pool returned a quote for this pair. Multi-hop routing is not yet included."]
+      };
+    }
+    const quotedOut = uint(quote.amountOut, "quote amount out");
+    const haircutOut = quotedOut * (BPS - slippageBps) / BPS;
+    const slippageHaircut = quotedOut - haircutOut;
+    const debtToCover = uint(input.pair.actualDebtToCover, "actualDebtToCover");
+    const grossAfterRepayment = haircutOut > debtToCover ? haircutOut - debtToCover : 0n;
+    const safetyBuffer = ceil(grossAfterRepayment * safetyBps, BPS);
+    const net = haircutOut - debtToCover - flashFee - gasCostDebtUnits -
+      mevBudget - builderFee - safetyBuffer;
+    return {
+      network: input.snapshot.network, observedBlock: input.snapshot.observedBlock,
+      collateralToDebtQuote: quote.amountOut, quoteFeeTier: quote.selectedFee,
+      quoteBlock: quote.blockNumber, gasCostDebtTokenUnits: gasCostDebtUnits.toString(),
+      flashLoanFeeDebtTokenUnits: flashFee.toString(),
+      slippageHaircutDebtTokenUnits: slippageHaircut.toString(),
+      mevBudgetDebtTokenUnits: mevBudget.toString(), builderFeeDebtTokenUnits: builderFee.toString(),
+      safetyBufferDebtTokenUnits: safetyBuffer.toString(),
+      estimatedNetProfitDebtTokenUnits: net.toString(),
+      positiveAfterAllBudgets: net > 0n && input.pair.dustRuleSatisfied && input.pair.flashLoanAvailable,
+      flashLoanAvailable: input.pair.flashLoanAvailable,
+      source: "same-block-uniswap-quote-plus-live-aave-flashloan-premium-and-rpc-gas-price",
+      warnings: [
+        "gasUnits is an explicit caller-provided estimate; without a reviewed flash-loan executor it is not a measured end-to-end liquidation gas estimate.",
+        "Aave flash-loan availability is checked from the reserve's point-in-time liquidity balance and may change before execution.",
+        "The Uniswap quote is direct-pool only. The slippage haircut is a configured stress allowance, not a guarantee.",
+        "MEV and builder budgets are caller-provided; a zero budget does not mean MEV risk is zero.",
+        "A positive screen is not a transaction-level simulation or execution guarantee. No signing or submission occurs."
+      ]
     };
   } finally {
     await provider.destroy();
