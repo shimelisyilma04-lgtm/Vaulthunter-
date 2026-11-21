@@ -202,6 +202,7 @@ export async function inspectAaveL2ReservePositions(args: {
       addressesProvider.getFunction("getPriceOracle").staticCall({ blockTag: observedBlock })
     ]);
     const poolAddress = getAddress(String(poolAddressRaw));
+    if (poolAddress !== getAddress(deployment.expectedPool)) throw new Error("Aave Pool proxy does not match the pinned official deployment address for " + args.network + ".");
     const oracleAddress = getAddress(String(oracleAddressRaw));
     const pool = new Contract(poolAddress, POOL_ABI, provider);
     const oracle = new Contract(oracleAddress, ORACLE_ABI, provider);
