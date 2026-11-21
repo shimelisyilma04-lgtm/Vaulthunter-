@@ -69,14 +69,15 @@ export function aavePercentDivCeil(value: bigint, percentage: bigint): bigint {
 }
 export function aaveL2CloseFactorBps(
   healthFactorWad: bigint,
-  debtReserveBase: bigint,
-  collateralReserveBase: bigint,
+  totalDebtBase: bigint,
   minBaseThreshold: bigint | null
 ): bigint | null {
   if (minBaseThreshold === null) return null;
-  return healthFactorWad > 95n * WAD / 100n &&
-    debtReserveBase >= minBaseThreshold &&
-    collateralReserveBase >= minBaseThreshold ? 5_000n : 10_000n;
+  // Aave LiquidationLogic uses the account's total debt in base currency,
+  // with a strict greater-than comparison against the configured threshold.
+  return healthFactorWad > 95n * WAD / 100n && totalDebtBase > minBaseThreshold
+    ? 5_000n
+    : 10_000n;
 }
 export function aaveL2UsesLegacyEModePrice(
   userCategory: number,
@@ -383,7 +384,7 @@ export async function inspectAaveL2ReservePositions(args: {
         const collateralBase = BigInt(collateral.collateralBalance) * collateralPrice / collateralUnit;
         const totalDebtBase = asBigInt(account[1], "total debt base");
         let maxDebtBase = debtBase;
-        const closeFactorBps = aaveL2CloseFactorBps(hf, debtBase, collateralBase, minBaseThreshold);
+        const closeFactorBps = aaveL2CloseFactorBps(hf, totalDebtBase, minBaseThreshold);
         if (closeFactorBps === null) continue;
         if (closeFactorBps === 5_000n) {
           const halfAccountDebt = aavePercentMulHalfUp(totalDebtBase, 5_000n);
@@ -451,7 +452,7 @@ export async function inspectAaveL2ReservePositions(args: {
       minLeftoverBase: minLeftover?.toString() ?? null, reserves, pairs,
       warnings: [
         "All Aave account, reserve, token-balance, price, eMode and flash-premium reads use one confirmed block.",
-        "When Pool getters are unavailable, the calculator uses Aave Origin source constants only for the USD/1e8 base-currency profile (2,000e8 close-factor threshold; 1,000e8 dust threshold); other base-currency profiles fail closed. Close-factor selection uses the specific debt-reserve and collateral-reserve base values, not total account debt. The rounding profile follows current Aave Origin source and still requires deployed-implementation fork verification.",
+        "When Pool getters are unavailable, the calculator uses Aave Origin source constants only for the USD/1e8 base-currency profile (2,000e8 close-factor threshold; 1,000e8 dust threshold); other base-currency profiles fail closed. Close-factor selection uses total account debt in base currency with a strict greater-than threshold, as in Aave LiquidationLogic. The rounding profile follows current Aave Origin source and still requires deployed-implementation fork verification.",
         "Flash-loan liquidity is a point-in-time underlying balance and can change before execution.",
         blockPriceSourceWarning,
         "This endpoint does not sign, broadcast, or submit transactions."
