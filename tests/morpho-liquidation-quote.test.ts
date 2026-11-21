@@ -34,9 +34,15 @@ describe("Morpho Blue liquidation quote", () => {
     expect(result.liquiditySufficient).toBe(true);
   });
 
-  it("does not mark a quote executable when collateral is insufficient", () => {
+  it("caps seizure at available collateral and calculates the corresponding repayment shares", () => {
     const result = quoteMorphoLiquidation({ ...base, borrowerCollateralAssets: 1n });
-    expect(result.collateralSufficient).toBe(false);
+    expect(result.collateralLimited).toBe(true);
+    expect(result.liquidationMode).toBe("seized-collateral");
+    expect(result.seizedAssets).toBe(1n);
+    expect(result.remainingCollateralAssets).toBe(0n);
+    expect(result.collateralSufficient).toBe(true);
+    expect(result.repaymentSharesSufficient).toBe(true);
+    expect(result.valid).toBe(true);
   });
 
   it("does not mark a quote executable when loan liquidity is insufficient", () => {
