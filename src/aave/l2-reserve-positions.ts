@@ -349,7 +349,7 @@ export async function inspectAaveL2ReservePositions(args: {
         if (bonus <= BPS) continue;
         const collateralUnit = 10n ** BigInt(collateral.decimals);
         const debtUnit = 10n ** BigInt(debt.decimals);
-        const debtBase = BigInt(debt.totalDebt) * debtPrice / debtUnit;
+        const debtBase = ceilDiv(BigInt(debt.totalDebt) * debtPrice, debtUnit);
         const collateralBase = BigInt(collateral.collateralBalance) * collateralPrice / collateralUnit;
         const totalDebtBase = asBigInt(account[1], "total debt base");
         let maxDebtBase = debtBase;
