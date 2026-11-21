@@ -33,7 +33,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
     if (network.chainId !== 1n) throw new Error("Opportunity validation requires Ethereum mainnet RPC");
     const blockNumber = await provider.getBlockNumber();
     const block = await provider.getBlock(blockNumber);
-    if (!block) throw new Error("Unable to load validation block");
+    if (!block?.hash) throw new Error("Unable to load validation block hash");
     const candidates = await store.listRiskPositions(1, Math.max(1, Math.min(20, limit)));
     const morpho = new Contract(MORPHO, MORPHO_ABI, provider);
     const markets = new Map<string, Promise<any>>();
