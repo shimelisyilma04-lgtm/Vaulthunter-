@@ -8,7 +8,7 @@ VaultHunter is a read-only DeFi liquidation and keeper-intelligence project.
 - Bounded recent-event scanner for quick checks.
 - SQLite-backed incremental Aave V3 historical Borrow-event indexer.
 - Durable event ledger, borrower aggregates, block-hash checkpoints, and confirmation-depth reorg rewind.
-- Current health-factor snapshots for indexed borrowers.
+- Current health-factor snapshots for indexed borrowers.\n- Reserve-bonus-aware Aave liquidation profit estimator (unit-tested; live reserve-level quoting remains a follow-up).\n- Morpho Blue Ethereum market discovery through Morpho's public REST API, plus on-chain borrower-event indexing and position/oracle screening.
 - No wallet, private key, transaction signing, or transaction submission.
 
 ## Dashboard preview
@@ -43,6 +43,6 @@ npm run aave:scan
 
 ## Safety and scope
 
-The historical indexer discovers borrowers from Pool Borrow events. It does not prove that a borrower is currently liquidatable or that a liquidation is profitable. Health-factor snapshots can become stale immediately. Any future execution path requires pinned-block revalidation, protocol-specific close-factor and reserve checks, exact transaction simulation, conservative gas/slippage modelling, risk controls, and independent security review.
+The historical indexer discovers borrowers from Pool Borrow events. The Morpho scanner discovers Ethereum Blue markets from the official public API and borrower addresses from the Morpho singleton's position events. It does not prove that a borrower is currently liquidatable or that a liquidation is profitable. Health-factor snapshots can become stale immediately. Any future execution path requires pinned-block revalidation, protocol-specific close-factor and reserve checks, exact transaction simulation, conservative gas/slippage modelling, risk controls, and independent security review.
 
 Execution is deliberately disabled. This experimental software is not financial advice. DeFi systems carry substantial risk, including total loss.
