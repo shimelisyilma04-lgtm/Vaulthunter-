@@ -199,7 +199,7 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
             const weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
             const isWethLoanToken = loanToken.toLowerCase() === weth.toLowerCase();
             const netProfitLoanToken = isWethLoanToken && result.estimatedGasCostWei !== null
-              ? (BigInt(grossProfitLoanToken) - BigInt(result.estimatedGasCostWei)).toString()
+              ? (BigInt(grossProfitLoanToken) - BigInt(result.estimatedGasCostWei ?? "0")).toString()
               : null;
             send(res, 200, {
               ...result,
