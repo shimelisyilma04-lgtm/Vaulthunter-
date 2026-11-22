@@ -50,6 +50,10 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
     const morpho = new Contract(MORPHO, MORPHO_ABI, provider);
     const markets = new Map<string, Promise<any>>();
     const data: Record<string, unknown>[] = [];
+    // Bound expensive multi-bridge DEX discovery so the public endpoint stays
+    // responsive on the small Render instance. The list is already risk-ranked.
+    const routeEvaluationLimit = 8;
+    let routeEvaluations = 0;
     for (const candidate of candidates) {
       const reasons: string[] = [];
       try {
@@ -160,6 +164,18 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           new Contract(collateralToken, ERC20_ABI, provider).getFunction("symbol")({ blockTag: blockNumber }).catch(() => "collateral token")
         ]);
         const marketLiquiditySufficient = quote.repaidAssets <= availableMarketLiquidity;
+        if (routeEvaluations >= routeEvaluationLimit) {
+          data.push({
+            borrower: candidate.borrower, marketId: candidate.marketId,
+            status: "deferred", reasons: ["DEX route evaluation budget reached; candidate remains unvalidated"],
+            validationBlock: blockNumber, validationBlockHash,
+            healthFactor: Number(healthFactorWad) / 1e18,
+            debtAssets: debtAssets.toString(), estimatedRepaidAssets: quote.repaidAssets.toString(),
+            estimatedSeizedCollateral: quote.seizedAssets.toString(), executionEnabled: false
+          });
+          continue;
+        }
+        routeEvaluations += 1;
         let swapQuote: Record<string, unknown> | null = null;
         try {
           const result = await quoteUniswapV3BestRoute(config.MORPHO_RPC_URL, {
@@ -260,7 +276,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
       protocol: "morpho-blue", chain: "ethereum", chainId: 1,
       status: data.length === 0 ? "no-fresh-risk-positions" : data.some((row) => row.status === "partially-validated") ? "partial-validation-only" : "no-validated-opportunities",
       validationBlock: blockNumber, validationBlockHash: validationBlockHash,
-      candidatesChecked: data.length, candidateScanLimit, data,
+      candidatesChecked: data.length, candidateScanLimit, routeEvaluations, routeEvaluationLimit, data,
       definition: "Partially validated means the position is liquidatable at the pinned block, Morpho liquidation sizing passed local safety checks, an exit quote exceeds repayment plus the estimated Aave flash-loan fee, and Aave reserve liquidity was observed at that block. It is still not a profitability or execution guarantee: full transaction simulation, gas conversion, slippage and MEV remain unverified. Morpho market withdrawal liquidity is informational and is not required to fund a liquidator.",
       executionEnabled: false, transactionSigningEnabled: false, transactionSubmissionEnabled: false
     };
