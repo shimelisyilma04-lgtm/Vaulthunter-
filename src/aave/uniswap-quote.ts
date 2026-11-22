@@ -77,9 +77,10 @@ export async function quoteUniswapV3ExactInput(
 export async function quoteUniswapV3BestExactInput(
   rpcUrl: string,
   input: Omit<UniswapV3QuoteInput, "fee">,
-  validationBlock?: number
+  validationBlock?: number,
+  expectedChainId = 1
 ): Promise<{
-  chainId: 1;
+  chainId: number;
   blockNumber: number;
   blockHash: string;
   tokenIn: string;
@@ -110,10 +111,10 @@ export async function quoteUniswapV3BestExactInput(
     throw new Error("amountIn must be a positive integer in the input token's smallest units");
   }
 
-  const provider = new JsonRpcProvider(rpcUrl, 1, { staticNetwork: true });
+  const provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true });
   try {
     const network = await provider.getNetwork();
-    if (network.chainId !== 1n) throw new Error("Uniswap V3 quote adapter requires Ethereum mainnet (chain ID 1)");
+    if (network.chainId !== BigInt(expectedChainId)) throw new Error("Uniswap V3 quote adapter requires chain ID " + expectedChainId);
     const blockNumber = validationBlock ?? await provider.getBlockNumber();
     const pinnedBlock = await provider.getBlock(blockNumber);
     if (!pinnedBlock?.hash) throw new Error("Unable to load pinned quote block hash");
@@ -164,7 +165,7 @@ export async function quoteUniswapV3BestExactInput(
       current === null || BigInt(candidate.amountOut!) > BigInt(current.amountOut!) ? candidate : current, null);
 
     return {
-      chainId: 1,
+      chainId: expectedChainId,
       blockNumber,
       blockHash: pinnedBlock.hash,
       tokenIn,
@@ -202,9 +203,10 @@ export function enumerateUniswapV3FeeTiers(hops: number): number[][] {
 export async function quoteUniswapV3BestPath(
   rpcUrl: string,
   input: { tokens: string[]; amountIn: string },
-  validationBlock?: number
+  validationBlock?: number,
+  expectedChainId = 1
 ): Promise<{
-  chainId: 1;
+  chainId: number;
   blockNumber: number;
   tokens: string[];
   amountIn: string;
@@ -228,10 +230,10 @@ export async function quoteUniswapV3BestPath(
   if (!/^\d+$/.test(input.amountIn) || BigInt(input.amountIn) <= 0n) {
     throw new Error("amountIn must be a positive integer in the input token's smallest units");
   }
-  const provider = new JsonRpcProvider(rpcUrl, 1, { staticNetwork: true });
+  const provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true });
   try {
     const network = await provider.getNetwork();
-    if (network.chainId !== 1n) throw new Error("Uniswap V3 path quotes require Ethereum mainnet (chain ID 1)");
+    if (network.chainId !== BigInt(expectedChainId)) throw new Error("Uniswap V3 path quotes require chain ID " + expectedChainId);
     const blockNumber = validationBlock ?? await provider.getBlockNumber();
     const pinnedBlock = await provider.getBlock(blockNumber);
     if (!pinnedBlock?.hash) throw new Error("Unable to load pinned multi-hop quote block hash");
@@ -292,7 +294,7 @@ export async function quoteUniswapV3BestPath(
     const best = available.reduce<typeof available[number] | null>((current, candidate) =>
       current === null || BigInt(candidate.amountOut!) > BigInt(current.amountOut!) ? candidate : current, null);
     return {
-      chainId: 1,
+      chainId: expectedChainId,
       blockNumber,
       blockHash: pinnedBlock.hash,
       tokens,
@@ -328,9 +330,10 @@ const UNISWAP_ROUTE_BRIDGES = [
 export async function quoteUniswapV3BestRoute(
   rpcUrl: string,
   input: { tokenIn: string; tokenOut: string; amountIn: string },
-  validationBlock: number
+  validationBlock: number,
+  expectedChainId = 1
 ): Promise<Record<string, unknown> & { blockNumber: number; blockHash: string; amountOut: string | null; gasEstimate: string | null }> {
-  const direct = await quoteUniswapV3BestExactInput(rpcUrl, input, validationBlock);
+  const direct = await quoteUniswapV3BestExactInput(rpcUrl, input, validationBlock, expectedChainId);
   if (direct.amountOut !== null && BigInt(direct.amountOut) > 0n) {
     return { ...direct, routeType: "direct", routeTokens: [getAddress(input.tokenIn), getAddress(input.tokenOut)] };
   }
@@ -341,7 +344,7 @@ export async function quoteUniswapV3BestRoute(
     try {
       return await quoteUniswapV3BestPath(rpcUrl, {
         tokens: [input.tokenIn, bridge, input.tokenOut], amountIn: input.amountIn
-      }, validationBlock);
+      }, validationBlock, expectedChainId);
     } catch (error) {
       return { blockNumber: validationBlock, blockHash: "", tokens: [input.tokenIn, bridge, input.tokenOut], amountOut: null, gasEstimate: null,
         selectedFees: null, candidatesChecked: 0, candidates: [], error: error instanceof Error ? error.message.slice(0, 180) : "Path quote failed" };
@@ -352,7 +355,7 @@ export async function quoteUniswapV3BestRoute(
     current === null || BigInt(path.amountOut!) > BigInt(current.amountOut!) ? path : current, null);
   if (best) {
     return {
-      chainId: 1, blockNumber: best.blockNumber, blockHash: best.blockHash,
+      chainId: expectedChainId, blockNumber: best.blockNumber, blockHash: best.blockHash,
       tokenIn: getAddress(input.tokenIn), tokenOut: getAddress(input.tokenOut), amountIn: input.amountIn,
       selectedFee: null, selectedFees: best.selectedFees, amountOut: best.amountOut, gasEstimate: best.gasEstimate,
       initializedTicksCrossed: null, candidates: direct.candidates, pathCandidates: paths,
