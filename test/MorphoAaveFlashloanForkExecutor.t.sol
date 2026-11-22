@@ -22,7 +22,7 @@ contract MockMorpho is IMorphoBlueMinimal {
     function liquidate(MarketParams calldata, address, uint256 seizedAssets, uint256, bytes calldata)
         external pure override returns (uint256, uint256, uint256, uint256)
     {
-        return (seizedAssets, 100, 0, 0);
+        return (seizedAssets == 0 ? 50 : seizedAssets, 100, 0, 0);
     }
 }
 
@@ -51,7 +51,7 @@ contract MorphoAaveFlashloanForkExecutorTest {
             lltv: 8e17
         });
         plan.borrower = address(0x2001);
-        plan.seizedAssets = 50;
+        plan.seizedAssets = 0;
         plan.repaidShares = 25;
         plan.swapPath = abi.encodePacked(collateral, uint24(3000), loan);
         plan.minProfit = 5;
