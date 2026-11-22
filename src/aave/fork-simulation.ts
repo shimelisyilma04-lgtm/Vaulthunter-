@@ -40,7 +40,7 @@ export async function simulateForkCall(
     throw new Error("value is outside the uint256 range");
   }
 
-  if (![1, 8453, 42161].includes(expectedChainId)) throw new Error("Only Ethereum, Base and Arbitrum fork simulations are supported");
+  if (![1, 8453, 42161, 31337].includes(expectedChainId)) throw new Error("Unsupported fork simulation chain ID");
   const provider = new JsonRpcProvider(forkRpcUrl, expectedChainId, { staticNetwork: true });
   try {
     const network = await provider.getNetwork();
