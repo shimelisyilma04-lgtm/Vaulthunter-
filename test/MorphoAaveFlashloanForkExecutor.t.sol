@@ -40,7 +40,7 @@ contract MorphoAaveFlashloanForkExecutorTest {
         executor = new MorphoAaveFlashloanForkExecutor(address(aave), address(morpho), address(router));
     }
 
-    function _plan() internal pure returns (MorphoAaveFlashloanForkExecutor.LiquidationPlan memory plan) {
+    function _plan() internal view returns (MorphoAaveFlashloanForkExecutor.LiquidationPlan memory plan) {
         address loan = address(0x1001);
         address collateral = address(0x1002);
         plan.marketParams = IMorphoBlueMinimal.MarketParams({
