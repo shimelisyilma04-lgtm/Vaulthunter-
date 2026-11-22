@@ -1,0 +1,28 @@
+name: Fork executor Solidity tests
+
+on:
+  push:
+    branches:
+      - feat/read-only-api-live-dashboard
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "foundry.toml"
+      - ".github/workflows/fork-executor-tests.yml"
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "foundry.toml"
+      - ".github/workflows/fork-executor-tests.yml"
+
+jobs:
+  solidity-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Run fork-executor unit tests
+        run: forge test -vvv
