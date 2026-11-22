@@ -11,7 +11,7 @@ import { estimateAaveV3Liquidation } from "../domain/profitability.js";
 import { estimateExecutionCosts } from "../domain/execution-costs.js";
 import { fetchAaveKitPositions } from "../aave/aavekit.js";
 import { fetchAaveMarketSnapshot } from "../aave/market.js";
-import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
+import { quoteUniswapV3BestExactInput, quoteUniswapV3BestPath, quoteUniswapV3BestRoute, quoteUniswapV3ExactInput } from "../aave/uniswap-quote.js";
 import { simulateAaveLiquidationCall, simulateForkCall } from "../aave/fork-simulation.js";
 import { discoverAaveBorrowersFromSubgraph } from "../aave/subgraph-discovery.js";
 import { fetchOnchainAavePositions } from "../aave/onchain-positions.js";
@@ -198,9 +198,33 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
             }
             const weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
             const isWethLoanToken = loanToken.toLowerCase() === weth.toLowerCase();
-            const netProfitLoanToken = isWethLoanToken && result.estimatedGasCostWei !== null
-              ? (BigInt(grossProfitLoanToken) - BigInt(result.estimatedGasCostWei ?? "0")).toString()
-              : null;
+            let gasCostLoanToken: string | null = null;
+            let gasConversionQuote: Record<string, unknown> | null = null;
+            if (result.estimatedGasCostWei !== null) {
+              if (isWethLoanToken) {
+                gasCostLoanToken = result.estimatedGasCostWei;
+              } else {
+                try {
+                  const quote = await quoteUniswapV3BestRoute(
+                    config.ETHEREUM_FORK_RPC_URL,
+                    { tokenIn: weth, tokenOut: loanToken, amountIn: result.estimatedGasCostWei },
+                    result.safeBlock,
+                    31337
+                  );
+                  gasConversionQuote = quote;
+                  if (quote.blockNumber === result.safeBlock &&
+                      quote.blockHash.toLowerCase() === result.safeBlockHash.toLowerCase() &&
+                      typeof quote.amountOut === "string" && BigInt(quote.amountOut) > 0n) {
+                    gasCostLoanToken = quote.amountOut;
+                  }
+                } catch {
+                  gasConversionQuote = { status: "unavailable", reason: "Could not quote ETH gas cost into the loan token on the pinned fork block" };
+                }
+              }
+            }
+            const netProfitLoanToken = gasCostLoanToken === null
+              ? null
+              : (BigInt(grossProfitLoanToken) - BigInt(gasCostLoanToken)).toString();
             send(res, 200, {
               ...result,
               simulationType: "morpho-blue-aave-flashloan-uniswap-v3",
@@ -211,7 +235,9 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
                 gasPriceWei: result.gasPriceWei,
                 estimatedGasCostWei: result.estimatedGasCostWei,
                 denomination: "ETH",
-                conversionToLoanToken: isWethLoanToken ? "1 WETH = 1 ETH (18 decimals)" : "not calculated; gas-to-loan-token conversion requires a pinned on-fork route quote"
+                estimatedGasCostLoanToken: gasCostLoanToken,
+                conversionQuote: gasConversionQuote,
+                conversionToLoanToken: isWethLoanToken ? "1 WETH = 1 ETH (18 decimals)" : gasCostLoanToken !== null ? "WETH-to-loan-token Uniswap V3 quote at the exact simulation block" : "unavailable; net profit remains null"
               },
               profitability: {
                 status: netProfitLoanToken === null ? "gross-profit-known-net-profit-unpriced" :
@@ -219,7 +245,7 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
                 grossProfitLoanToken,
                 netProfitLoanToken,
                 loanTokenIsWETH: isWethLoanToken,
-                warning: "Gas estimate uses the fork RPC fee data. This excludes builder/MEV costs, inclusion uncertainty and state changes. For non-WETH loan tokens, net profit remains null until gas is converted using a pinned fork quote."
+                warning: "Gas estimate uses the fork RPC fee data. For non-WETH loan tokens, gas is valued through a pinned WETH-to-loan-token Uniswap V3 quote. This remains an estimate and excludes builder/MEV costs, inclusion uncertainty and state changes."
               },
               simulationOnly: true,
               transactionSubmitted: false
