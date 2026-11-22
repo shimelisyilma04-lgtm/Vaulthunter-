@@ -16,6 +16,7 @@ export async function simulateForkCall(
   chainId: number;
   forkBlock: number;
   safeBlock: number;
+  safeBlockHash: string;
   to: string;
   from: string | null;
   value: string;
@@ -61,6 +62,8 @@ export async function simulateForkCall(
     }
     const forkBlock = await provider.getBlockNumber();
     const safeBlock = Math.max(0, forkBlock - confirmations);
+    const safeBlockData = await provider.getBlock(safeBlock);
+    if (!safeBlockData?.hash) throw new Error("Unable to load the pinned Anvil fork block hash");
     const tx = {
       to,
       data: input.data,
@@ -78,6 +81,7 @@ export async function simulateForkCall(
       chainId: expectedChainId,
       forkBlock,
       safeBlock,
+      safeBlockHash: safeBlockData.hash,
       to,
       from: from ?? null,
       value: valueBigInt.toString(),
