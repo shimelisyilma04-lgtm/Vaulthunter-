@@ -23,6 +23,14 @@ const ERC20_ABI = ["function decimals() view returns (uint8)", "function symbol(
 const WAD = 10n ** 18n;
 const PRICE_SCALE = 10n ** 36n;
 
+// Skip uneconomic dust before spending RPC calls on DEX routing.
+// Thresholds are denominated in each token's smallest units.
+const MIN_STABLE_DEBT: Record<string, bigint> = {
+  "0xdac17f958d2ee523a2206206994597c13d831ec7": 10_000_000n, // 10 USDT
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": 10_000_000n, // 10 USDC
+  "0x6b175474e89094c44da98b954eedeac495271d0f": 10n * 10n ** 18n // 10 DAI
+};
+
 export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit: number): Promise<Record<string, unknown>> {
   if (!config.MORPHO_RPC_URL) {
     return { status: "unavailable", reason: "MORPHO_RPC_URL is not configured", data: [], executionEnabled: false };
@@ -35,7 +43,10 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
     const block = await provider.getBlock(blockNumber);
     if (!block?.hash) throw new Error("Unable to load validation block hash");
     const validationBlockHash = block.hash;
-    const candidates = await store.listRiskPositions(1, Math.max(1, Math.min(20, limit)));
+    // Scan a wider risk-ranked window so recently safe positions do not hide
+    // other currently liquidatable borrowers near the top of the shortlist.
+    const candidateScanLimit = Math.max(50, Math.min(100, limit * 5));
+    const candidates = await store.listRiskPositions(1, candidateScanLimit);
     const morpho = new Contract(MORPHO, MORPHO_ABI, provider);
     const markets = new Map<string, Promise<any>>();
     const data: Record<string, unknown>[] = [];
@@ -92,6 +103,17 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           elapsedSeconds: elapsed
         });
         const debtAssets = debt.borrowerDebtAssetsUp;
+        const minimumStableDebt = MIN_STABLE_DEBT[loanToken.toLowerCase()];
+        if (minimumStableDebt !== undefined && debtAssets < minimumStableDebt) {
+          data.push({
+            borrower: candidate.borrower, marketId: candidate.marketId, status: "rejected",
+            reasons: ["Stablecoin debt is below the $10 minimum notional filter; skipped expensive DEX route checks"],
+            validationBlock: blockNumber, validationBlockHash,
+            debtAssets: debtAssets.toString(), loanToken: loanToken,
+            minimumDebtAssets: minimumStableDebt.toString(), executionEnabled: false
+          });
+          continue;
+        }
         const collateralValue = collateralAssets * price / PRICE_SCALE;
         const healthFactorWad = debtAssets === 0n ? 2n ** 255n : collateralValue * lltv / debtAssets;
         const availableMarketLiquidity = marketState.totalSupplyAssets > marketState.totalBorrowAssets
@@ -235,7 +257,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
       protocol: "morpho-blue", chain: "ethereum", chainId: 1,
       status: data.length === 0 ? "no-fresh-risk-positions" : data.some((row) => row.status === "partially-validated") ? "partial-validation-only" : "no-validated-opportunities",
       validationBlock: blockNumber, validationBlockHash: validationBlockHash,
-      candidatesChecked: data.length, data,
+      candidatesChecked: data.length, candidateScanLimit, data,
       definition: "Partially validated means current liquidation eligibility, Morpho quote, market liquidity and a DEX quote were checked. It does not mean liquidator funding or net profitability is verified.",
       executionEnabled: false, transactionSigningEnabled: false, transactionSubmissionEnabled: false
     };
