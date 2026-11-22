@@ -190,7 +190,7 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
               to: body.to, data: body.data,
               ...(typeof body.from === "string" ? { from: body.from } : {})
             }, config.AAVE_INDEXER_CONFIRMATIONS, 31337);
-            let grossProfitLoanToken: string | null = null;
+            let grossProfitLoanToken: string;
             try {
               grossProfitLoanToken = AbiCoder.defaultAbiCoder().decode(["uint256"], result.returnData)[0].toString();
             } catch {
