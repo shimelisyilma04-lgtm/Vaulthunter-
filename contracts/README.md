@@ -36,7 +36,7 @@ forge test
 - Compile and review the contract with a pinned Solidity toolchain.
 - Run against an isolated Anvil fork at a pinned block, with the real Morpho Blue, Aave V3 Pool, and Uniswap V3 SwapRouter deployments.
 - Supply a real, freshly validated borrower/market plan and a viable route.
-- Capture the fork's gas estimate and fee data, then convert gas cost to the loan-token denomination using a separately pinned on-fork quote. Until that conversion is verified, net profit in loan-token units must remain null.
+- The API converts estimated ETH gas cost to the loan-token denomination using a WETH-to-loan-token Uniswap V3 quote at the exact pinned fork block. If no valid route exists, net profit in loan-token units remains null.
 - Independently audit the executor and test adversarial token/route behavior before considering any use beyond local simulation.
 
 No transaction signing, broadcasting, or mainnet execution is implemented or enabled by this contract.
