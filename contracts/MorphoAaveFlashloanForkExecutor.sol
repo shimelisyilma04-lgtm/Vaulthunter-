@@ -139,7 +139,7 @@ contract MorphoAaveFlashloanForkExecutor {
         require(asset == plan.marketParams.loanToken, "FLASH_ASSET_MISMATCH");
 
         _forceApprove(asset, address(morpho), amount);
-        (uint256 seizedOut, uint256 repaidOut,,) = morpho.liquidate(
+        (uint256 seizedOut, uint256 repaidOut, uint256 badDebtAssets, uint256 badDebtShares) = morpho.liquidate(
             plan.marketParams,
             plan.borrower,
             plan.seizedAssets,
@@ -147,6 +147,7 @@ contract MorphoAaveFlashloanForkExecutor {
             bytes("")
         );
         require(seizedOut > 0 && repaidOut > 0, "MORPHO_LIQUIDATION_EMPTY");
+        require(badDebtAssets == 0 && badDebtShares == 0, "MORPHO_BAD_DEBT_REMAINS");
         require(repaidOut <= amount, "FLASH_AMOUNT_TOO_SMALL");
 
         _forceApprove(plan.marketParams.collateralToken, address(swapRouter), seizedOut);
