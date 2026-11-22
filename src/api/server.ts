@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";\nimport { AbiCoder, getAddress } from "ethers";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import type { AaveStorePort } from "../aave/store.js";
@@ -35,7 +35,7 @@ const RATE_WINDOW_MS = 60_000;
 
 function rateLimitFor(pathname: string): { key: string; max: number } {
   if (pathname === "/api/v1/discovery/subgraph" || pathname === "/api/v1/discovery/multichain") return { key: "subgraph-discovery", max: 2 };
-  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain") return { key: "fork-simulation", max: 5 };
+  if (pathname === "/api/v1/simulation/fork" || pathname === "/api/v1/simulation/aave-liquidation" || pathname === "/api/v1/simulation/multichain" || pathname === "/api/v1/simulation/morpho-executor") return { key: "fork-simulation", max: 5 };
   if (pathname === "/api/v1/opportunities" || pathname === "/api/v1/opportunities/estimate" || pathname === "/api/v1/morpho/opportunities") return { key: "opportunities", max: 5 };
   if (["/api/v1/scan", "/api/v1/quote/uniswap-v3", "/api/v1/quote/uniswap-v3/best", "/api/v1/quote/uniswap-v3/path", "/api/v1/positions", "/api/v1/positions/onchain", "/api/v1/quote/uniswap-v3/multichain"].includes(pathname)) {
     return { key: pathname, max: 30 };
@@ -135,7 +135,7 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
       res.end();
       return;
     }
-    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain"].includes(url.pathname);
+    const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain", "/api/v1/simulation/morpho-executor"].includes(url.pathname);
     if (req.method !== "GET" && !isForkSimulationPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -174,6 +174,58 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
           body = await readJsonBody(req);
         } catch (error) {
           send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON request body" });
+          return;
+        }
+        if (url.pathname === "/api/v1/simulation/morpho-executor") {
+          if (typeof body.to !== "string" || typeof body.data !== "string" ||
+              typeof body.loanToken !== "string" ||
+              (body.from !== undefined && typeof body.from !== "string")) {
+            send(res, 400, { error: "invalid_morpho_executor_request", message: "Provide executor to, encoded data, loanToken address, and optional from address." });
+            return;
+          }
+          try {
+            const loanToken = getAddress(body.loanToken);
+            const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL, {
+              to: body.to, data: body.data,
+              ...(typeof body.from === "string" ? { from: body.from } : {})
+            }, config.AAVE_INDEXER_CONFIRMATIONS, 31337);
+            let grossProfitLoanToken: string | null = null;
+            try {
+              grossProfitLoanToken = AbiCoder.defaultAbiCoder().decode(["uint256"], result.returnData)[0].toString();
+            } catch {
+              throw new Error("Executor return data did not contain its post-settlement profit value");
+            }
+            const weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+            const isWethLoanToken = loanToken.toLowerCase() === weth.toLowerCase();
+            const netProfitLoanToken = isWethLoanToken && result.estimatedGasCostWei !== null
+              ? (BigInt(grossProfitLoanToken) - BigInt(result.estimatedGasCostWei)).toString()
+              : null;
+            send(res, 200, {
+              ...result,
+              simulationType: "morpho-blue-aave-flashloan-uniswap-v3",
+              loanToken,
+              grossProfitLoanToken,
+              gasCost: {
+                estimatedGas: result.estimatedGas,
+                gasPriceWei: result.gasPriceWei,
+                estimatedGasCostWei: result.estimatedGasCostWei,
+                denomination: "ETH",
+                conversionToLoanToken: isWethLoanToken ? "1 WETH = 1 ETH (18 decimals)" : "not calculated; gas-to-loan-token conversion requires a pinned on-fork route quote"
+              },
+              profitability: {
+                status: netProfitLoanToken === null ? "gross-profit-known-net-profit-unpriced" :
+                  BigInt(netProfitLoanToken) > 0n ? "positive-estimate-after-gas" : "non-positive-after-gas",
+                grossProfitLoanToken,
+                netProfitLoanToken,
+                loanTokenIsWETH: isWethLoanToken,
+                warning: "Gas estimate uses the fork RPC fee data. This excludes builder/MEV costs, inclusion uncertainty and state changes. For non-WETH loan tokens, net profit remains null until gas is converted using a pinned fork quote."
+              },
+              simulationOnly: true,
+              transactionSubmitted: false
+            });
+          } catch (error) {
+            send(res, 422, { error: "morpho_executor_fork_simulation_failed", message: error instanceof Error ? error.message.slice(0, 500) : "Morpho executor fork simulation failed", transactionSubmitted: false });
+          }
           return;
         }
         if (url.pathname === "/api/v1/simulation/multichain") {
