@@ -236,9 +236,26 @@ export async function quoteUniswapV3BestPath(
     const pinnedBlock = await provider.getBlock(blockNumber);
     if (!pinnedBlock?.hash) throw new Error("Unable to load pinned multi-hop quote block hash");
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, provider);
+    const factory = new Contract(UNISWAP_V3_FACTORY, FACTORY_ABI, provider);
     const combinations = enumerateUniswapV3FeeTiers(tokens.length - 1);
     const candidates = await Promise.all(combinations.map(async (fees) => {
       try {
+        // Discover every hop at the same pinned block before invoking QuoterV2.
+        // This distinguishes missing/empty pools from genuine quote failures.
+        const hopPools: Array<{ address: string; liquidity: string }> = [];
+        for (let hop = 0; hop < fees.length; hop++) {
+          const rawPool = String(await factory.getFunction("getPool")(
+            tokens[hop]!, tokens[hop + 1]!, fees[hop]!, { blockTag: blockNumber }
+          ));
+          if (rawPool.toLowerCase() === "0x0000000000000000000000000000000000000000") {
+            throw new Error(`No pool for hop ${hop + 1} at fee tier ${fees[hop]}`);
+          }
+          const poolAddress = getAddress(rawPool);
+          const pool = new Contract(poolAddress, POOL_ABI, provider);
+          const liquidity = BigInt(await pool.getFunction("liquidity")({ blockTag: blockNumber }));
+          if (liquidity === 0n) throw new Error(`Pool at hop ${hop + 1} has zero active liquidity`);
+          hopPools.push({ address: poolAddress, liquidity: liquidity.toString() });
+        }
         const types: string[] = ["address"];
         const values: Array<string | number> = [tokens[0]!];
         for (let i = 0; i < fees.length; i++) {
