@@ -931,11 +931,11 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
         send(res, 200, {
           configured: Boolean(config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN),
           status: config.ETHEREUM_FORK_RPC_URL && config.VAULTHUNTER_SIMULATION_API_TOKEN ? "fork_rpc_configured" : "awaiting_fork_configuration",
-          simulationEndpoints: ["POST /api/v1/simulation/fork", "POST /api/v1/simulation/aave-liquidation"],
+          simulationEndpoints: ["POST /api/v1/simulation/fork", "POST /api/v1/simulation/aave-liquidation", "POST /api/v1/simulation/morpho-executor"],
           executionEnabled: false,
           transactionSubmissionEnabled: false,
-          required: ["ETHEREUM_FORK_RPC_URL pointing to an isolated Ethereum-mainnet fork", "complete liquidation transaction calldata from a separately audited executor", "flash-loan and DEX callback path deployed on that fork"],
-          warning: "The fork endpoint performs eth_call and eth_estimateGas only. It does not deploy an executor, construct liquidation calldata, sign transactions, or submit transactions."
+          required: ["ETHEREUM_FORK_RPC_URL pointing to an isolated Anvil Ethereum-mainnet fork configured with chain ID 31337", "deploy the experimental contracts/MorphoAaveFlashloanForkExecutor.sol only on that local fork", "encode the executor simulate(plan, flashAmount) call and submit it to POST /api/v1/simulation/morpho-executor"],
+          warning: "The Morpho executor is an unaudited research prototype protected by an Anvil chain-ID guard. This API performs eth_call and eth_estimateGas only; it does not deploy contracts, sign transactions, or submit transactions. For non-WETH loan tokens, net profit remains unpriced until gas is converted with a pinned on-fork quote."
         });
         return;
       }
