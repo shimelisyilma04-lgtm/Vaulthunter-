@@ -212,7 +212,10 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
         };
         data.push({
           borrower: candidate.borrower, marketId: candidate.marketId,
-          status: marketLiquiditySufficient && swapQuote && typeof swapQuote.amountOut === "string" && BigInt(swapQuote.amountOut) > 0n ? "partially-validated" : "not-validated",
+          status: flashFunding.status === "reserve-liquidity-verified-at-snapshot" &&
+            typeof swapQuote?.amountOut === "string" &&
+            BigInt(swapQuote.amountOut) > quote.repaidAssets + BigInt(String(flashFunding.estimatedFeeAssets ?? "0"))
+            ? "partially-validated" : "not-validated",
           validationBlock: blockNumber, validationBlockHash: validationBlockHash,
           healthFactor: Number(healthFactorWad) / 1e18,
           loanToken: { address: loanToken, symbol: String(loanSymbol), decimals: Number(loanMeta) },
@@ -258,7 +261,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
       status: data.length === 0 ? "no-fresh-risk-positions" : data.some((row) => row.status === "partially-validated") ? "partial-validation-only" : "no-validated-opportunities",
       validationBlock: blockNumber, validationBlockHash: validationBlockHash,
       candidatesChecked: data.length, candidateScanLimit, data,
-      definition: "Partially validated means current liquidation eligibility, Morpho quote, market liquidity and a DEX quote were checked. It does not mean liquidator funding or net profitability is verified.",
+      definition: "Partially validated means the position is liquidatable at the pinned block, Morpho liquidation sizing passed local safety checks, an exit quote exceeds repayment plus the estimated Aave flash-loan fee, and Aave reserve liquidity was observed at that block. It is still not a profitability or execution guarantee: full transaction simulation, gas conversion, slippage and MEV remain unverified. Morpho market withdrawal liquidity is informational and is not required to fund a liquidator.",
       executionEnabled: false, transactionSigningEnabled: false, transactionSubmissionEnabled: false
     };
   } finally {
