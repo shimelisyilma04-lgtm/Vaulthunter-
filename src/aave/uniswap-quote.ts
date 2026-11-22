@@ -238,23 +238,36 @@ export async function quoteUniswapV3BestPath(
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, provider);
     const factory = new Contract(UNISWAP_V3_FACTORY, FACTORY_ABI, provider);
     const combinations = enumerateUniswapV3FeeTiers(tokens.length - 1);
+    // Cache each hop's pool lookup across all fee combinations. Without this,
+    // the same factory and liquidity calls are repeated up to 16 times per pair.
+    const poolChecks = new Map<string, Promise<{ address: string; liquidity: string } | null>>();
+    const getPoolCheck = (tokenA: string, tokenB: string, fee: number) => {
+      const key = [tokenA.toLowerCase(), tokenB.toLowerCase(), fee].sort().join(":");
+      let pending = poolChecks.get(key);
+      if (!pending) {
+        pending = (async () => {
+          const rawPool = String(await factory.getFunction("getPool")(
+            tokenA, tokenB, fee, { blockTag: blockNumber }
+          ));
+          if (rawPool.toLowerCase() === "0x0000000000000000000000000000000000000000") return null;
+          const address = getAddress(rawPool);
+          const pool = new Contract(address, POOL_ABI, provider);
+          const liquidity = BigInt(await pool.getFunction("liquidity")({ blockTag: blockNumber }));
+          return liquidity > 0n ? { address, liquidity: liquidity.toString() } : null;
+        })();
+        poolChecks.set(key, pending);
+      }
+      return pending;
+    };
     const candidates = await Promise.all(combinations.map(async (fees) => {
       try {
         // Discover every hop at the same pinned block before invoking QuoterV2.
-        // This distinguishes missing/empty pools from genuine quote failures.
+        // Cached lookups avoid duplicate RPC calls across fee combinations.
         const hopPools: Array<{ address: string; liquidity: string }> = [];
         for (let hop = 0; hop < fees.length; hop++) {
-          const rawPool = String(await factory.getFunction("getPool")(
-            tokens[hop]!, tokens[hop + 1]!, fees[hop]!, { blockTag: blockNumber }
-          ));
-          if (rawPool.toLowerCase() === "0x0000000000000000000000000000000000000000") {
-            throw new Error(`No pool for hop ${hop + 1} at fee tier ${fees[hop]}`);
-          }
-          const poolAddress = getAddress(rawPool);
-          const pool = new Contract(poolAddress, POOL_ABI, provider);
-          const liquidity = BigInt(await pool.getFunction("liquidity")({ blockTag: blockNumber }));
-          if (liquidity === 0n) throw new Error(`Pool at hop ${hop + 1} has zero active liquidity`);
-          hopPools.push({ address: poolAddress, liquidity: liquidity.toString() });
+          const pool = await getPoolCheck(tokens[hop]!, tokens[hop + 1]!, fees[hop]!);
+          if (!pool) throw new Error(`No active pool for hop ${hop + 1} at fee tier ${fees[hop]}`);
+          hopPools.push(pool);
         }
         const types: string[] = ["address"];
         const values: Array<string | number> = [tokens[0]!];
