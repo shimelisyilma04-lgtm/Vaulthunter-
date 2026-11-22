@@ -22,6 +22,8 @@ export async function simulateForkCall(
   callSucceeded: true;
   returnData: string;
   estimatedGas: string;
+  gasPriceWei: string | null;
+  estimatedGasCostWei: string | null;
   simulationOnly: true;
   transactionSubmitted: false;
   warning: string;
@@ -69,6 +71,9 @@ export async function simulateForkCall(
     const returnData = await provider.send("eth_call", [tx, toQuantity(safeBlock)]) as string;
     // Estimate gas on the same isolated fork. This does not sign or submit a transaction.
     const estimatedGas = await provider.send("eth_estimateGas", [tx, toQuantity(safeBlock)]) as string;
+    const feeData = await provider.getFeeData();
+    const gasPriceWei = feeData.maxFeePerGas ?? feeData.gasPrice ?? null;
+    const estimatedGasCostWei = gasPriceWei === null ? null : (BigInt(estimatedGas) * gasPriceWei).toString();
     return {
       chainId: expectedChainId,
       forkBlock,
@@ -79,6 +84,8 @@ export async function simulateForkCall(
       callSucceeded: true,
       returnData,
       estimatedGas: BigInt(estimatedGas).toString(),
+      gasPriceWei: gasPriceWei?.toString() ?? null,
+      estimatedGasCostWei,
       simulationOnly: true,
       transactionSubmitted: false,
       warning: "This is an eth_call plus gas estimate against the configured fork, not a proof of profitability or guaranteed execution. The calldata must represent the complete liquidation and callback path. Re-run immediately before any external action; no transaction is signed or broadcast."
