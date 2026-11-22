@@ -115,7 +115,7 @@ contract MorphoAaveFlashloanForkExecutor {
         require(plan.marketParams.loanToken != address(0), "ZERO_LOAN_TOKEN");
         require(plan.marketParams.collateralToken != address(0), "ZERO_COLLATERAL_TOKEN");
         require(plan.marketParams.loanToken != plan.marketParams.collateralToken, "SAME_TOKEN");
-        require(plan.seizedAssets > 0 || plan.repaidShares > 0, "EMPTY_LIQUIDATION");
+        require((plan.seizedAssets == 0) != (plan.repaidShares == 0), "SET_EXACTLY_ONE_LIQUIDATION_AMOUNT");
         require(plan.swapPath.length >= 43 && (plan.swapPath.length - 20) % 23 == 0, "BAD_V3_PATH");
         require(_firstToken(plan.swapPath) == plan.marketParams.collateralToken, "PATH_INPUT_MISMATCH");
         require(_lastToken(plan.swapPath) == plan.marketParams.loanToken, "PATH_OUTPUT_MISMATCH");
