@@ -73,7 +73,7 @@ export function encodeMorphoExecutorSimulationCall(
   }
 
   const data = EXECUTOR_INTERFACE.encodeFunctionData("simulate", [{
-    marketParams: { loanToken, collateralToken, oracle, irm, lltv: BigInt(lltv) },
+    marketParams: [loanToken, collateralToken, oracle, irm, BigInt(lltv)],
     borrower,
     seizedAssets: BigInt(seizedAssets),
     repaidShares: BigInt(repaidShares),
