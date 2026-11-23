@@ -1,11 +1,12 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import {
   Contract,
   ContractFactory,
   JsonRpcProvider,
   Wallet,
-  getAddress
+  getAddress,
+  type InterfaceAbi
 } from "ethers";
 import { quoteUniswapV3BestRoute } from "../src/aave/uniswap-quote.js";
 
@@ -46,7 +47,7 @@ function out(value: unknown): void {
   process.stdout.write(JSON.stringify(value, null, 2) + "\n");
 }
 
-async function waitForFork(provider: JsonRpcProvider, child: ChildProcessWithoutNullStreams): Promise<void> {
+async function waitForFork(provider: JsonRpcProvider, child: ChildProcess): Promise<void> {
   let lastError = "Anvil has not responded";
   for (let attempt = 0; attempt < 80; attempt++) {
     if (child.exitCode !== null) throw new Error("Anvil exited before becoming ready: " + lastError);
@@ -90,11 +91,11 @@ async function main(): Promise<void> {
   const gasPrice = upstreamFeeData.gasPrice ?? upstreamFeeData.maxFeePerGas;
   if (!gasPrice || gasPrice <= 0n) throw new Error("Could not obtain a positive upstream gas-price estimate");
 
-  let anvil: ChildProcessWithoutNullStreams | undefined;
+  let anvil: ChildProcess | undefined;
   let provider: JsonRpcProvider | undefined;
   const rejected: Array<Record<string, unknown>> = [];
   try {
-    anvil = spawn("anvil", [
+    const anvilProcess = spawn("anvil", [
       "--fork-url", UPSTREAM_RPC,
       "--fork-block-number", String(forkBlock),
       "--chain-id", "31337",
@@ -102,21 +103,22 @@ async function main(): Promise<void> {
       "--gas-price", gasPrice.toString(),
       "--silent"
     ], { stdio: ["ignore", "pipe", "pipe"] });
-    let anvilOutput = "";
-    anvil.stdout.on("data", (chunk) => { anvilOutput = (anvilOutput + chunk.toString()).slice(-4000); });
-    anvil.stderr.on("data", (chunk) => { anvilOutput = (anvilOutput + chunk.toString()).slice(-4000); });
+    anvil = anvilProcess;
+    anvilProcess.stdout?.on("data", () => undefined);
+    anvilProcess.stderr?.on("data", () => undefined);
 
-    provider = new JsonRpcProvider(LOCAL_RPC, 31337, { staticNetwork: true });
-    await waitForFork(provider, anvil);
-    const forkBlockData = await provider.getBlock(forkBlock);
+    const forkProvider = new JsonRpcProvider(LOCAL_RPC, 31337, { staticNetwork: true });
+    provider = forkProvider;
+    await waitForFork(forkProvider, anvilProcess);
+    const forkBlockData = await forkProvider.getBlock(forkBlock);
     if (!forkBlockData?.hash || forkBlockData.hash.toLowerCase() !== forkHash.toLowerCase()) {
       throw new Error("Anvil fork block hash does not match the opportunity scanner's pinned block");
     }
 
     const artifact = JSON.parse(await readFile(
       "out/MorphoAaveFlashloanForkExecutor.sol/MorphoAaveFlashloanForkExecutor.json", "utf8"
-    )) as { abi: unknown[]; bytecode: { object: string } };
-    const wallet = new Wallet(ANVIL_TEST_KEY, provider);
+    )) as { abi: InterfaceAbi; bytecode: { object: string } };
+    const wallet = new Wallet(ANVIL_TEST_KEY, forkProvider);
     const factory = new ContractFactory(artifact.abi, "0x" + artifact.bytecode.object.replace(/^0x/, ""), wallet);
     const executor = await factory.deploy(AAVE_POOL, MORPHO_BLUE, UNISWAP_V3_ROUTER);
     await executor.waitForDeployment();
@@ -161,7 +163,7 @@ async function main(): Promise<void> {
         // callback path on the disposable fork and rolls all state changes back.
         const report = await detailedSimulation.staticCall(plan, flashAmount) as readonly bigint[];
         const gasEstimate = await detailedSimulation.estimateGas(plan, flashAmount);
-        const feeData = await provider.getFeeData();
+        const feeData = await forkProvider.getFeeData();
         const effectiveGasPrice = feeData.gasPrice ?? gasPrice;
         const gasCostWei = gasEstimate * effectiveGasPrice;
         let gasCostLoanToken: bigint;
