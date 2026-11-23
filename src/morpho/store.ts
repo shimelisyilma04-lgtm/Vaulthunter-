@@ -59,6 +59,19 @@ export class MorphoStore implements MorphoStorePort {
       );
       CREATE INDEX IF NOT EXISTS idx_morpho_candidates
         ON morpho_borrowers(chain_id, market_id, health_factor_wad);
+      CREATE TABLE IF NOT EXISTS morpho_simulation_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chain_id INTEGER NOT NULL, market_id TEXT NOT NULL, borrower TEXT NOT NULL,
+        validation_block INTEGER NOT NULL, validation_block_hash TEXT NOT NULL,
+        priority_score INTEGER NOT NULL, priority_band TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
+        payload_json TEXT NOT NULL, result_json TEXT, last_error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, claimed_at TEXT,
+        UNIQUE(chain_id, market_id, borrower, validation_block)
+      );
+      CREATE INDEX IF NOT EXISTS idx_morpho_simulation_queue
+        ON morpho_simulation_jobs(chain_id, status, priority_score DESC, created_at ASC);
     `);
   }
   upsertMarket(m: MorphoMarket): void {
@@ -236,6 +249,73 @@ export class MorphoStore implements MorphoStorePort {
       LIMIT ?
     `).all(chainId, safeLimit * 4) as MorphoCandidate[];
     return rows.filter((row) => BigInt(row.debtAssets) > 0n && BigInt(row.healthFactorWad) < 125n * 10n ** 16n).slice(0, safeLimit);
+  }
+
+  enqueueSimulationJobs(jobs: import("./store-port.js").MorphoSimulationJobInput[]): number {
+    const insert = this.db.prepare(`
+      INSERT OR IGNORE INTO morpho_simulation_jobs
+      (chain_id,market_id,borrower,validation_block,validation_block_hash,priority_score,priority_band,payload_json)
+      VALUES(?,?,?,?,?,?,?,?)
+    `);
+    const tx = this.db.transaction(() => {
+      let inserted = 0;
+      for (const job of jobs) {
+        const r = insert.run(job.chainId,job.marketId.toLowerCase(),job.borrower.toLowerCase(),
+          job.validationBlock,job.validationBlockHash,job.priorityScore,job.priorityBand,JSON.stringify(job.payload));
+        inserted += Number(r.changes);
+      }
+      return inserted;
+    });
+    return tx();
+  }
+  claimSimulationJob(chainId: number): import("./store-port.js").MorphoSimulationJob | null {
+    const tx = this.db.transaction(() => {
+      const row = this.db.prepare(`
+        SELECT * FROM morpho_simulation_jobs WHERE chain_id=?
+        AND (status='queued' OR (status='running' AND claimed_at < datetime('now','-5 minutes')))
+        ORDER BY priority_score DESC, created_at ASC LIMIT 1
+      `).get(chainId) as Record<string, unknown> | undefined;
+      if (!row) return null;
+      const r = this.db.prepare(`
+        UPDATE morpho_simulation_jobs SET status='running',attempts=attempts+1,
+          claimed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
+      `).run(row.id);
+      if (r.changes !== 1) return null;
+      return this.mapSimulationJob({ ...row, status: "running", attempts: Number(row.attempts ?? 0)+1 });
+    });
+    return tx();
+  }
+  completeSimulationJob(id: number, status: "completed" | "rejected" | "failed",
+    result: Record<string, unknown>, lastError: string | null = null): boolean {
+    const r = this.db.prepare(`
+      UPDATE morpho_simulation_jobs SET status=?,result_json=?,last_error=?,
+        updated_at=CURRENT_TIMESTAMP,claimed_at=NULL WHERE id=? AND status='running'
+    `).run(status,JSON.stringify(result),lastError?.slice(0,1000) ?? null,id);
+    return r.changes === 1;
+  }
+  listSimulationJobs(chainId: number,
+    statuses: Array<"queued" | "running" | "completed" | "rejected" | "failed">, limit: number
+  ): import("./store-port.js").MorphoSimulationJob[] {
+    const allowed = statuses.filter((x) => ["queued","running","completed","rejected","failed"].includes(x));
+    if (!allowed.length) return [];
+    const marks = allowed.map(() => "?").join(",");
+    const rows = this.db.prepare(`
+      SELECT * FROM morpho_simulation_jobs WHERE chain_id=? AND status IN (${marks})
+      ORDER BY created_at DESC LIMIT ?
+    `).all(chainId,...allowed,Math.max(1,Math.min(100,Math.trunc(limit)))) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapSimulationJob(row));
+  }
+  private mapSimulationJob(row: Record<string, unknown>): import("./store-port.js").MorphoSimulationJob {
+    return {
+      id:Number(row.id),chainId:Number(row.chain_id),marketId:String(row.market_id),borrower:String(row.borrower),
+      validationBlock:Number(row.validation_block),validationBlockHash:String(row.validation_block_hash),
+      priorityScore:Number(row.priority_score),priorityBand:String(row.priority_band) as "high" | "medium" | "low",
+      status:String(row.status) as import("./store-port.js").MorphoSimulationJob["status"],attempts:Number(row.attempts),
+      payload:JSON.parse(String(row.payload_json)) as Record<string, unknown>,
+      result:row.result_json ? JSON.parse(String(row.result_json)) as Record<string, unknown> : null,
+      lastError:row.last_error == null ? null : String(row.last_error),
+      createdAt:String(row.created_at),updatedAt:String(row.updated_at)
+    };
   }
   close(): void { this.db.close(); }
 }
