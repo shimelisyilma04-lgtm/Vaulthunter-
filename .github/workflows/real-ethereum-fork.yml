@@ -2,14 +2,6 @@ name: Real Ethereum protocol fork smoke test
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/read-only-api-live-dashboard
-    paths:
-      - "contracts/**"
-      - "test/**"
-      - "foundry.toml"
-      - ".github/workflows/real-ethereum-fork.yml"
 
 jobs:
   real-protocol-fork:
