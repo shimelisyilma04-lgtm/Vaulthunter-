@@ -52,7 +52,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
     const data: Record<string, unknown>[] = [];
     // Bound expensive multi-bridge DEX discovery so the public endpoint stays
     // responsive on the small Render instance. The list is already risk-ranked.
-    const routeEvaluationLimit = 8;
+    const routeEvaluationLimit = 20;
     let routeEvaluations = 0;
     for (const candidate of candidates) {
       const reasons: string[] = [];
