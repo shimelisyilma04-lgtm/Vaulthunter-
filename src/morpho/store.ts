@@ -277,6 +277,12 @@ export class MorphoStore implements MorphoStorePort {
           updated_at=CURRENT_TIMESTAMP,claimed_at=NULL
         WHERE chain_id=? AND status='running' AND claimed_at < datetime('now','-5 minutes') AND attempts>=3
       `).run(chainId);
+      this.db.prepare(`
+        UPDATE morpho_simulation_jobs SET status='rejected',
+          last_error=COALESCE(last_error,'Queued opportunity expired before simulation'),
+          updated_at=CURRENT_TIMESTAMP
+        WHERE chain_id=? AND status='queued' AND created_at < datetime('now','-2 minutes')
+      `).run(chainId);
       const row = this.db.prepare(`
         SELECT * FROM morpho_simulation_jobs WHERE chain_id=? AND attempts<3
         AND (status='queued' OR (status='running' AND claimed_at < datetime('now','-5 minutes')))
