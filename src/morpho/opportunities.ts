@@ -236,6 +236,7 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           healthFactor: Number(healthFactorWad) / 1e18,
           loanToken: { address: loanToken, symbol: String(loanSymbol), decimals: Number(loanMeta) },
           collateralToken: { address: collateralToken, symbol: String(collateralSymbol), decimals: Number(collateralMeta) },
+          marketParams: { loanToken, collateralToken, oracle: oracleAddress, irm: irmAddress, lltv: lltv.toString() },
           debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
           liquidationIncentiveFactor: Number(quote.liquidationIncentiveFactorWad) / 1e18,
           estimatedRepaidAssets: quote.repaidAssets.toString(),
