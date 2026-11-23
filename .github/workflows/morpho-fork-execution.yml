@@ -22,6 +22,12 @@ jobs:
         run: npm install
       - name: Compile fork executor
         run: forge build
+      - name: Run executor mock regression tests
+        run: forge test --match-contract MorphoAaveFlashloanForkExecutorTest -vvv
+      - name: Verify real protocol contracts on the pinned fork
+        env:
+          ETHEREUM_FORK_UPSTREAM_RPC_URL: ${{ secrets.ETHEREUM_FORK_UPSTREAM_RPC_URL }}
+        run: forge test --fork-url "$ETHEREUM_FORK_UPSTREAM_RPC_URL" --chain-id 31337 --match-contract RealProtocolForkSmokeTest -vvv
       - name: Run full flash-loan liquidation simulation on disposable fork
         env:
           ETHEREUM_FORK_UPSTREAM_RPC_URL: ${{ secrets.ETHEREUM_FORK_UPSTREAM_RPC_URL }}
