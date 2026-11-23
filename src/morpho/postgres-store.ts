@@ -318,7 +318,7 @@ export class PostgresMorphoStore implements MorphoStorePort {
       const selected = await client.query(`
         SELECT * FROM morpho_simulation_jobs WHERE chain_id=$1
         AND (status='queued' OR (status='running' AND claimed_at < NOW() - INTERVAL '5 minutes'))
-        ORDER BY priority_score DESC, created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
+        ORDER BY priority_score DESC, created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
       `,[chainId]);
       const row = selected.rows[0];
       if (!row) { await client.query("COMMIT"); return null; }
