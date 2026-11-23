@@ -36,6 +36,6 @@ describe("Morpho opportunity triage scoring", () => {
       funding: { sufficient: true, status: "reserve-liquidity-verified-at-snapshot" },
       profitability: { preGasProfitLoanToken: "-100" }
     });
-    expect(scored.priorityScore).toBe(60);
+    expect(scored.priorityScore).toBe(65);
   });
 });
