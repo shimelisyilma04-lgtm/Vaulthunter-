@@ -72,14 +72,14 @@ export function encodeMorphoExecutorSimulationCall(
     throw new Error("swapPath endpoints must be collateralToken then loanToken");
   }
 
-  const data = EXECUTOR_INTERFACE.encodeFunctionData("simulate", [{
-    marketParams: [loanToken, collateralToken, oracle, irm, BigInt(lltv)],
+  const data = EXECUTOR_INTERFACE.encodeFunctionData("simulate", [[
+    [loanToken, collateralToken, oracle, irm, BigInt(lltv)],
     borrower,
-    seizedAssets: BigInt(seizedAssets),
-    repaidShares: BigInt(repaidShares),
+    BigInt(seizedAssets),
+    BigInt(repaidShares),
     swapPath,
-    minProfit: BigInt(minProfit),
-    deadline: BigInt(deadline)
-  }, BigInt(flashAmount)]);
+    BigInt(minProfit),
+    BigInt(deadline)
+  ], BigInt(flashAmount)]);
   return { data, loanToken, flashAmount };
 }
