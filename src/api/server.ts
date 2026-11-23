@@ -272,6 +272,14 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
                 loanTokenIsWETH: isWethLoanToken,
                 warning: "Gas estimate uses the fork RPC fee data. For non-WETH loan tokens, gas is valued through a pinned WETH-to-loan-token Uniswap V3 quote. This remains an estimate and excludes builder/MEV costs, inclusion uncertainty and state changes."
               },
+              executionDecision: netProfitLoanToken !== null && BigInt(netProfitLoanToken) > 0n
+                ? "positive-fork-estimate-only" : "REJECT",
+              rejectionReasons: netProfitLoanToken === null
+                ? ["Gas could not be valued in the loan-token denomination; fail closed."]
+                : BigInt(netProfitLoanToken) <= 0n
+                  ? ["Estimated net profit after gas is zero or negative; reject this plan."]
+                  : [],
+              eligibleForMainnetExecution: false,
               simulationOnly: true,
               transactionSubmitted: false
             });
