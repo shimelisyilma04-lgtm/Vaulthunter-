@@ -12,6 +12,18 @@ export interface MorphoMonitorStats {
   checkpoint: MorphoCheckpoint | null;
 }
 
+export interface MorphoSimulationJobInput {
+  chainId: number; marketId: string; borrower: string; validationBlock: number;
+  validationBlockHash: string; priorityScore: number; priorityBand: "high" | "medium" | "low";
+  payload: Record<string, unknown>;
+}
+export interface MorphoSimulationJob {
+  id: number; chainId: number; marketId: string; borrower: string; validationBlock: number;
+  validationBlockHash: string; priorityScore: number; priorityBand: "high" | "medium" | "low";
+  status: "queued" | "running" | "completed" | "rejected" | "failed"; attempts: number;
+  payload: Record<string, unknown>; result: Record<string, unknown> | null;
+  lastError: string | null; createdAt: string; updatedAt: string;
+}
 export interface MorphoStorePort {
   upsertMarket(market: MorphoMarket): MaybePromise<void>;
   getGlobalCheckpoint(chainId: number): MaybePromise<MorphoCheckpoint | null>;
@@ -23,6 +35,10 @@ export interface MorphoStorePort {
   listBorrowers(chainId: number, marketId: string, limit: number): MaybePromise<MorphoBorrower[]>;
   listBorrowerMarketIds(chainId: number): MaybePromise<string[]>;
   getMonitorStats(chainId: number): MaybePromise<MorphoMonitorStats>;
+  enqueueSimulationJobs(jobs: MorphoSimulationJobInput[]): MaybePromise<number>;
+  claimSimulationJob(chainId: number): MaybePromise<MorphoSimulationJob | null>;
+  completeSimulationJob(id: number, status: "completed" | "rejected" | "failed", result: Record<string, unknown>, lastError?: string | null): MaybePromise<boolean>;
+  listSimulationJobs(chainId: number, statuses: Array<"queued" | "running" | "completed" | "rejected" | "failed">, limit: number): MaybePromise<MorphoSimulationJob[]>;
   listLiquidationCandidates(chainId: number, limit: number): MaybePromise<MorphoCandidate[]>;
   listRiskPositions(chainId: number, limit: number): MaybePromise<MorphoCandidate[]>;
   saveSnapshot(input: {
