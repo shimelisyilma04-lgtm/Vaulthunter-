@@ -1,0 +1,42 @@
+name: Full Morpho liquidation simulation on isolated Ethereum fork
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  morpho-fork-execution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install project dependencies
+        run: npm install
+      - name: Compile fork executor
+        run: forge build
+      - name: Run full flash-loan liquidation simulation on disposable fork
+        env:
+          ETHEREUM_FORK_UPSTREAM_RPC_URL: ${{ secrets.ETHEREUM_FORK_UPSTREAM_RPC_URL }}
+          VAULTHUNTER_OPPORTUNITIES_URL: https://vaulthunter-core.onrender.com/api/v1/morpho/opportunities?limit=20
+        run: |
+          set -o pipefail
+          if [ -z "$ETHEREUM_FORK_UPSTREAM_RPC_URL" ]; then
+            echo "Missing GitHub Actions secret ETHEREUM_FORK_UPSTREAM_RPC_URL"
+            exit 1
+          fi
+          npx tsx scripts/morpho-fork-execution.ts | tee morpho-fork-report.json
+      - name: Upload fork simulation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: morpho-fork-simulation-report
+          path: morpho-fork-report.json
+          if-no-files-found: ignore
