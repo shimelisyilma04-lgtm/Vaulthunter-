@@ -61,7 +61,8 @@ export function encodeMorphoExecutorSimulationCall(
   if (typeof plan.swapPath !== "string" || !/^0x[0-9a-fA-F]+$/.test(plan.swapPath)) {
     throw new Error("swapPath must be non-empty hex bytes");
   }
-  const path = plan.swapPath.toLowerCase();
+  const swapPath = plan.swapPath;
+  const path = swapPath.toLowerCase();
   if ((path.length - 2) < 86 || ((path.length - 2 - 40) % 46) !== 0) {
     throw new Error("swapPath is not a valid packed Uniswap V3 path");
   }
