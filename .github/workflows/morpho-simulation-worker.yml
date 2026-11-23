@@ -1,0 +1,42 @@
+name: Persistent Morpho simulation queue worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/read-only-api-live-dashboard
+    paths:
+      - .github/workflows/morpho-simulation-worker.yml
+      - scripts/morpho-simulation-worker.ts
+      - contracts/MorphoAaveFlashloanForkExecutor.sol
+      - src/aave/uniswap-quote.ts
+
+permissions:
+  contents: read
+
+jobs:
+  process-one-queued-simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies and compile isolated-fork executor
+        run: |
+          npm install
+          forge build
+      - name: Claim one job, simulate on historical fork, and persist every outcome
+        env:
+          ETHEREUM_FORK_UPSTREAM_RPC_URL: ${{ secrets.ETHEREUM_FORK_UPSTREAM_RPC_URL }}
+          VAULTHUNTER_SIMULATION_API_TOKEN: ${{ secrets.VAULTHUNTER_SIMULATION_API_TOKEN }}
+          VAULTHUNTER_API_URL: https://vaulthunter-core.onrender.com
+        run: |
+          set -euo pipefail
+          test -n "$ETHEREUM_FORK_UPSTREAM_RPC_URL" || (echo "Missing ETHEREUM_FORK_UPSTREAM_RPC_URL secret" && exit 1)
+          test -n "$VAULTHUNTER_SIMULATION_API_TOKEN" || (echo "Missing VAULTHUNTER_SIMULATION_API_TOKEN secret" && exit 1)
+          npx tsx scripts/morpho-simulation-worker.ts
