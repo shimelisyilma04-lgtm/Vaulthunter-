@@ -63,6 +63,16 @@ contract MorphoAaveFlashloanForkExecutor {
         uint256 deadline;
     }
 
+    struct SimulationReport {
+        uint256 repaidAssets;
+        uint256 seizedAssets;
+        uint256 swapOutput;
+        uint256 flashPremium;
+        uint256 realizedProfit;
+    }
+
+    SimulationReport private lastReport;
+
     event ForkLiquidationSimulated(
         address indexed borrower,
         address indexed loanToken,
@@ -98,6 +108,25 @@ contract MorphoAaveFlashloanForkExecutor {
         onlyFork
         returns (uint256 profitLoanToken)
     {
+        return _runSimulation(plan, flashAmount);
+    }
+
+    /// @notice Returns the exact Morpho repayment, seized collateral, swap output,
+    ///         Aave premium and realized post-settlement profit from a fork eth_call.
+    function simulateDetailed(LiquidationPlan calldata plan, uint256 flashAmount)
+        external
+        onlyOwner
+        onlyFork
+        returns (SimulationReport memory report)
+    {
+        _runSimulation(plan, flashAmount);
+        return lastReport;
+    }
+
+    function _runSimulation(LiquidationPlan calldata plan, uint256 flashAmount)
+        private
+        returns (uint256 profitLoanToken)
+    {
         require(!flashLoanActive, "FLASH_LOAN_ALREADY_ACTIVE");
         require(flashAmount > 0, "ZERO_FLASH_AMOUNT");
         require(plan.borrower != address(0), "ZERO_BORROWER");
@@ -112,6 +141,7 @@ contract MorphoAaveFlashloanForkExecutor {
 
         address loanToken = plan.marketParams.loanToken;
         uint256 balanceBefore = IERC20Minimal(loanToken).balanceOf(address(this));
+        delete lastReport;
         flashLoanActive = true;
         callbackCompleted = false;
         aavePool.flashLoanSimple(address(this), loanToken, flashAmount, abi.encode(plan), 0);
@@ -122,6 +152,7 @@ contract MorphoAaveFlashloanForkExecutor {
         require(balanceAfter >= balanceBefore, "LOAN_TOKEN_BALANCE_DECREASED");
         profitLoanToken = balanceAfter - balanceBefore;
         require(profitLoanToken >= plan.minProfit, "MIN_PROFIT_NOT_REALIZED");
+        lastReport.realizedProfit = profitLoanToken;
     }
 
     function executeOperation(
@@ -163,6 +194,10 @@ contract MorphoAaveFlashloanForkExecutor {
 
         _forceApprove(asset, address(aavePool), amount + premium);
         callbackCompleted = true;
+        lastReport.repaidAssets = repaidOut;
+        lastReport.seizedAssets = seizedOut;
+        lastReport.swapOutput = output;
+        lastReport.flashPremium = premium;
         emit ForkLiquidationSimulated(
             plan.borrower, asset, plan.marketParams.collateralToken,
             repaidOut, seizedOut, output, premium, output - repaidOut - premium
