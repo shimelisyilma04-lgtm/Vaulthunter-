@@ -270,8 +270,15 @@ export class MorphoStore implements MorphoStorePort {
   }
   claimSimulationJob(chainId: number): import("./store-port.js").MorphoSimulationJob | null {
     const tx = this.db.transaction(() => {
+      // Expired leases are retried at most twice; terminalize exhausted jobs.
+      this.db.prepare(`
+        UPDATE morpho_simulation_jobs SET status='failed',
+          last_error=COALESCE(last_error,'Worker lease expired after maximum attempts'),
+          updated_at=CURRENT_TIMESTAMP,claimed_at=NULL
+        WHERE chain_id=? AND status='running' AND claimed_at < datetime('now','-5 minutes') AND attempts>=3
+      `).run(chainId);
       const row = this.db.prepare(`
-        SELECT * FROM morpho_simulation_jobs WHERE chain_id=?
+        SELECT * FROM morpho_simulation_jobs WHERE chain_id=? AND attempts<3
         AND (status='queued' OR (status='running' AND claimed_at < datetime('now','-5 minutes')))
         ORDER BY priority_score DESC, created_at ASC LIMIT 1
       `).get(chainId) as Record<string, unknown> | undefined;
