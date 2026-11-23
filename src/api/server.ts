@@ -138,7 +138,9 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
       return;
     }
     const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain", "/api/v1/simulation/morpho-executor"].includes(url.pathname);
-    if (req.method !== "GET" && !isForkSimulationPost) {
+    const isMorphoQueueWorkerPost = req.method === "POST" &&
+      (url.pathname === "/api/v1/morpho/simulations/claim" || /^\\/api\\/v1\\/morpho\\/simulations\\/\\d+\\/result$/.test(url.pathname));
+    if (req.method !== "GET" && !isForkSimulationPost && !isMorphoQueueWorkerPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
     }
@@ -507,7 +509,45 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
         }
         const limit = Math.max(1, Math.min(20, limitFrom(url, 10, 20)));
         const data = await evaluateMorphoOpportunities(morphoStore, limit);
-        send(res, 200, data);
+        const rows = Array.isArray(data.data) ? data.data as Array<Record<string, unknown>> : [];
+        const queueable = rows.filter((row) =>
+          row.status === "partially-validated" &&
+          typeof row.borrower === "string" && typeof row.marketId === "string" &&
+          typeof row.validationBlock === "number" && typeof row.validationBlockHash === "string" &&
+          typeof row.snapshotAgeSeconds === "number" && row.snapshotAgeSeconds <= 60 &&
+          typeof row.priorityScore === "number" && row.priorityScore >= 45 &&
+          (row.priorityBand === "high" || row.priorityBand === "medium")
+        );
+        const queued = await morphoStore.enqueueSimulationJobs(queueable.map((row) => ({
+          chainId: 1, marketId: String(row.marketId), borrower: String(row.borrower),
+          validationBlock: Number(row.validationBlock), validationBlockHash: String(row.validationBlockHash),
+          priorityScore: Number(row.priorityScore), priorityBand: row.priorityBand as "high" | "medium",
+          payload: row
+        })));
+        send(res, 200, {
+          ...data,
+          simulationQueue: {
+            candidatesEligible: queueable.length, newlyQueued: queued,
+            rule: "Only fresh partially-validated candidates with medium/high triage priority are queued; scoring is not proof of profitability.",
+            simulationOnly: true, mainnetExecutionEnabled: false
+          }
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/morpho/simulations/queue" || url.pathname === "/api/v1/morpho/simulations/history") {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable" });
+          return;
+        }
+        const history = url.pathname.endsWith("/history");
+        const statuses = history ? ["completed","rejected","failed"] as const : ["queued","running"] as const;
+        const jobs = await morphoStore.listSimulationJobs(1, [...statuses], limitFrom(url, 50, 100));
+        send(res, 200, {
+          protocol: "morpho-blue", chainId: 1, mode: "read-only",
+          kind: history ? "simulation-results-history" : "simulation-queue",
+          count: jobs.length, jobs,
+          transactionSigningEnabled: false, transactionSubmissionEnabled: false
+        });
         return;
       }
       if (url.pathname === "/api/v1/morpho/risk") {
