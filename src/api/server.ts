@@ -592,7 +592,7 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
         const outcomes = jobs.filter((job) => job.result !== null);
         const profitRanked = outcomes.filter((job) =>
           typeof job.result?.netProfitAfterGasLoanToken === "string" &&
-          /^-?\\d+$/.test(job.result.netProfitAfterGasLoanToken)
+          /^-?\d+$/.test(job.result.netProfitAfterGasLoanToken)
         ).sort((a,b) => {
           const at = String(a.result?.loanToken ?? "").toLowerCase();
           const bt = String(b.result?.loanToken ?? "").toLowerCase();
