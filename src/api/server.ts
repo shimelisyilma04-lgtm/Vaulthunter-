@@ -20,6 +20,7 @@ import { quoteMultiChainUniswapV3 } from "../chain/uniswap-v3-quote.js";
 import { inspectAaveL2Borrower } from "../aave/l2-readonly.js";
 import { inspectMorphoBluePosition } from "../morpho/blue.js";
 import { evaluateMorphoOpportunities } from "../morpho/opportunities.js";
+import { encodeMorphoExecutorSimulationCall } from "../morpho/executor-calldata.js";
 
 const CHAIN_ID = 1;
 const POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -178,17 +179,38 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
           return;
         }
         if (url.pathname === "/api/v1/simulation/morpho-executor") {
-          if (typeof body.to !== "string" || typeof body.data !== "string" ||
-              typeof body.loanToken !== "string" ||
-              (body.from !== undefined && typeof body.from !== "string")) {
-            send(res, 400, { error: "invalid_morpho_executor_request", message: "Provide executor to, encoded data, loanToken address, and optional from address." });
+          if (typeof body.to !== "string" || typeof body.from !== "string" ||
+              (typeof body.data !== "string" && (typeof body.plan !== "object" || body.plan === null || typeof body.flashAmount !== "string"))) {
+            send(res, 400, { error: "invalid_morpho_executor_request", message: "Provide executor to, owner from address, and either encoded data plus loanToken or a validated plan plus flashAmount." });
             return;
           }
           try {
-            const loanToken = getAddress(body.loanToken);
+            const executorAddress = getAddress(body.to);
+            const fromAddress = getAddress(body.from);
+            let loanToken: string;
+            let callData: string;
+            let calldataSource: "provided" | "built-from-plan" = "provided";
+            if (typeof body.plan === "object" && body.plan !== null) {
+              const encoded = encodeMorphoExecutorSimulationCall(
+                body.plan as Parameters<typeof encodeMorphoExecutorSimulationCall>[0],
+                body.flashAmount
+              );
+              loanToken = encoded.loanToken;
+              callData = encoded.data;
+              calldataSource = "built-from-plan";
+              if (typeof body.loanToken === "string" && getAddress(body.loanToken) !== loanToken) {
+                throw new Error("loanToken does not match plan.marketParams.loanToken");
+              }
+            } else {
+              if (typeof body.data !== "string" || typeof body.loanToken !== "string" || !/^0x[0-9a-fA-F]+$/.test(body.data)) {
+                send(res, 400, { error: "invalid_morpho_executor_calldata", message: "Provide valid hex calldata and loanToken, or provide a plan and flashAmount." });
+                return;
+              }
+              loanToken = getAddress(body.loanToken);
+              callData = body.data;
+            }
             const result = await simulateForkCall(config.ETHEREUM_FORK_RPC_URL, {
-              to: body.to, data: body.data,
-              ...(typeof body.from === "string" ? { from: body.from } : {})
+              to: executorAddress, data: callData, from: fromAddress
             }, config.AAVE_INDEXER_CONFIRMATIONS, 31337);
             let grossProfitLoanToken: string;
             try {
@@ -228,6 +250,9 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
             send(res, 200, {
               ...result,
               simulationType: "morpho-blue-aave-flashloan-uniswap-v3",
+              calldataSource,
+              executor: executorAddress,
+              simulationCaller: fromAddress,
               loanToken,
               grossProfitLoanToken,
               gasCost: {
