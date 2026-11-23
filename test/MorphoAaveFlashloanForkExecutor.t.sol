@@ -138,6 +138,28 @@ contract MorphoAaveFlashloanForkExecutorTest {
         require(loan.balanceOf(address(executor)) == 5, "PROFIT_NOT_RETAINED");
     }
 
+    function testDetailedReportIncludesMorphoSwapAndAaveSettlementAmounts() external {
+        MockToken loan = new MockToken();
+        MockToken collateral = new MockToken();
+        MockAavePool aave = new MockAavePool(loan);
+        MockMorpho morpho = new MockMorpho(loan, collateral);
+        MockV3Router router = new MockV3Router(loan, collateral, 106);
+        loan.mint(address(aave), 10_000);
+        loan.mint(address(router), 10_000);
+        collateral.mint(address(morpho), 1_000);
+        MorphoAaveFlashloanForkExecutor executor =
+            new MorphoAaveFlashloanForkExecutor(address(aave), address(morpho), address(router));
+
+        MorphoAaveFlashloanForkExecutor.SimulationReport memory report =
+            executor.simulateDetailed(_planFor(address(loan), address(collateral)), 100);
+
+        require(report.repaidAssets == 100, "WRONG_MORPHO_REPAYMENT");
+        require(report.seizedAssets == 50, "WRONG_COLLATERAL_SEIZED");
+        require(report.swapOutput == 106, "WRONG_SWAP_OUTPUT");
+        require(report.flashPremium == 1, "WRONG_AAVE_PREMIUM");
+        require(report.realizedProfit == 5, "WRONG_NET_SETTLEMENT_PROFIT");
+    }
+
     function testRevertsWhenSwapCannotRepayFlashLoanAndMinimumProfit() external {
         MockToken loan = new MockToken();
         MockToken collateral = new MockToken();
