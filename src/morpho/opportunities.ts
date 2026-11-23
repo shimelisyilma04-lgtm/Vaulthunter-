@@ -4,6 +4,7 @@ import { accrueMorphoBorrowDebt } from "./accrual.js";
 import { quoteMorphoLiquidation } from "./liquidation-quote.js";
 import type { MorphoStorePort } from "./store-port.js";
 import { quoteUniswapV3BestRoute } from "../aave/uniswap-quote.js";
+import { rankMorphoOpportunities } from "./opportunity-scoring.js";
 
 const MORPHO = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
 const AAVE_V3_POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
