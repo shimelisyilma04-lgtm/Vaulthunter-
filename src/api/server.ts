@@ -580,6 +580,46 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
         });
         return;
       }
+      if (url.pathname === "/api/v1/morpho/simulations/analytics") {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable" });
+          return;
+        }
+        const jobs = await morphoStore.listSimulationJobs(1,
+          ["queued","running","completed","rejected","failed"], 100);
+        const counts = { queued: 0, running: 0, completed: 0, rejected: 0, failed: 0 };
+        for (const job of jobs) counts[job.status] += 1;
+        const outcomes = jobs.filter((job) => job.result !== null);
+        const profitRanked = outcomes.filter((job) =>
+          typeof job.result?.netProfitAfterGasLoanToken === "string" &&
+          /^-?\\d+$/.test(job.result.netProfitAfterGasLoanToken)
+        ).sort((a,b) => {
+          const at = String(a.result?.loanToken ?? "").toLowerCase();
+          const bt = String(b.result?.loanToken ?? "").toLowerCase();
+          if (at !== bt) return at.localeCompare(bt);
+          const av = BigInt(String(a.result?.netProfitAfterGasLoanToken));
+          const bv = BigInt(String(b.result?.netProfitAfterGasLoanToken));
+          return av > bv ? -1 : av < bv ? 1 : 0;
+        }).map((job,index) => ({ rank:index+1, id:job.id, borrower:job.borrower,
+          marketId:job.marketId, loanToken:job.result?.loanToken,
+          netProfitAfterGasLoanToken:job.result?.netProfitAfterGasLoanToken,
+          decision:job.result?.decision, validationBlock:job.validationBlock,
+          status:job.status, updatedAt:job.updatedAt }));
+        send(res, 200, {
+          protocol:"morpho-blue", chainId:1, mode:"read-only",
+          sampleSize:jobs.length, counts, outcomeCount:outcomes.length,
+          profitRanking:profitRanked,
+          recent:jobs.slice(0,30).map((job)=>({id:job.id,borrower:job.borrower,
+            marketId:job.marketId,validationBlock:job.validationBlock,
+            priorityScore:job.priorityScore,priorityBand:job.priorityBand,
+            status:job.status,attempts:job.attempts,lastError:job.lastError,
+            result:job.result,createdAt:job.createdAt,updatedAt:job.updatedAt})),
+          rankingBasis:"Actual fork-simulation netProfitAfterGasLoanToken after flash premium and estimated gas; values are ranked only within the same loan token address, never across unlike token units.",
+          limitations:["Only latest 100 stored jobs are included.","Builder/MEV costs and inclusion uncertainty are not included.","Triage priority is not a profit estimate.","No positive fork result has been independently verified yet."],
+          transactionSigningEnabled:false, transactionSubmissionEnabled:false
+        });
+        return;
+      }
       if (url.pathname === "/api/v1/morpho/simulations/queue" || url.pathname === "/api/v1/morpho/simulations/history") {
         if (!morphoStore) {
           send(res, 503, { error: "morpho_storage_unavailable" });
