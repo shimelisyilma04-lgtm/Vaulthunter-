@@ -1,0 +1,31 @@
+name: Real Ethereum protocol fork smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/read-only-api-live-dashboard
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "foundry.toml"
+      - ".github/workflows/real-ethereum-fork.yml"
+
+jobs:
+  real-protocol-fork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Verify real Morpho, Aave and Uniswap contracts on an isolated fork
+        env:
+          ETHEREUM_FORK_UPSTREAM_RPC_URL: ${{ secrets.ETHEREUM_FORK_UPSTREAM_RPC_URL }}
+        run: |
+          if [ -z "$ETHEREUM_FORK_UPSTREAM_RPC_URL" ]; then
+            echo "Missing GitHub Actions secret ETHEREUM_FORK_UPSTREAM_RPC_URL"
+            exit 1
+          fi
+          forge test --fork-url "$ETHEREUM_FORK_UPSTREAM_RPC_URL" --chain-id 31337 --match-contract RealProtocolForkSmokeTest -vvv
