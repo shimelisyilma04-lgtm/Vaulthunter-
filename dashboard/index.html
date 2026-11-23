@@ -123,6 +123,21 @@
       <div class="calc-actions"><button class="calc-button" id="estimateButton" type="button">Estimate liquidation</button><span class="hint">Use fresh, pair-specific values from one block. This is not a route quote or transaction simulation.</span></div>
       <div class="calc-result" id="estimateResult" aria-live="polite">Enter real market inputs to calculate a conservative screening estimate. No sample opportunity is preloaded.</div>
     </section>
+    <section class="panel" style="margin:16px 0" id="simulationAnalytics">
+      <div class="paneltitle"><h2>Simulation performance &amp; profit ranking</h2><button class="details-button" id="refreshSimulationAnalytics">Refresh results</button></div>
+      <div class="cards" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:14px">
+        <div class="card"><div class="cardhead">Queued</div><div class="metric" id="simQueued">—</div></div>
+        <div class="card"><div class="cardhead">Running</div><div class="metric" id="simRunning">—</div></div>
+        <div class="card"><div class="cardhead">Completed</div><div class="metric" id="simCompleted">—</div></div>
+        <div class="card"><div class="cardhead">Rejected</div><div class="metric" id="simRejected">—</div></div>
+        <div class="card"><div class="cardhead">Failed</div><div class="metric" id="simFailed">—</div></div>
+      </div>
+      <p class="hint" id="simSummary">Loading persisted simulation history…</p>
+      <div style="overflow-x:auto"><table><thead><tr><th>RANK</th><th>BORROWER</th><th>LOAN TOKEN</th><th>NET AFTER GAS · TOKEN UNITS</th><th>DECISION</th><th>BLOCK</th></tr></thead><tbody id="simProfitRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
+      <h3 style="font-size:12px;margin:20px 0 8px">Recent simulation outcomes</h3>
+      <div style="overflow-x:auto"><table><thead><tr><th>JOB</th><th>STATUS</th><th>ATTEMPTS</th><th>PRIORITY</th><th>LAST ERROR</th><th>UPDATED</th></tr></thead><tbody id="simHistoryRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
+      <p class="hint">Net-profit ranking uses fork simulation results after flash premium and estimated gas. Comparisons are grouped by loan-token address; unlike token units are never compared. MEV/builder costs remain excluded. No transactions are signed or submitted.</p>
+    </section>
     <div class="footer" id="status"><span>VaultHunter · Experimental read-only monitoring interface</span><span id="footerStatus">Connecting to API · No transactions submitted</span></div>
   </main>
 </div>
@@ -134,6 +149,45 @@
   const health=(wad)=>wad==null?null:Number(wad)/1e18;
   const risk=(hf)=>hf===null?'Unknown':hf<1?'Critical':hf<1.05?'High':hf<1.1?'Watch':'Lower';
   const esc=(s)=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  async function loadSimulationAnalytics(){
+    const profitRows=document.getElementById('simProfitRows');
+    const historyRows=document.getElementById('simHistoryRows');
+    const button=document.getElementById('refreshSimulationAnalytics');
+    if(button)button.disabled=true;
+    try{
+      const response=await fetch('/api/v1/morpho/simulations/analytics');
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.message||result.error||'Simulation analytics unavailable');
+      for(const key of ['queued','running','completed','rejected','failed']){
+        document.getElementById('sim'+key[0].toUpperCase()+key.slice(1)).textContent=String(result.counts?.[key]??0);
+      }
+      document.getElementById('simSummary').textContent=
+        'Latest '+result.sampleSize+' stored jobs · '+result.outcomeCount+' with outcomes · rankings are comparable only within the same loan token.';
+      profitRows.replaceChildren();
+      for(const item of result.profitRanking||[]){
+        const tr=document.createElement('tr');
+        const vals=[String(item.rank),shortAddress(item.borrower),shortAddress(item.loanToken),
+          String(item.netProfitAfterGasLoanToken),String(item.decision||item.status),String(item.validationBlock)];
+        for(const value of vals){const td=document.createElement('td');td.textContent=value;tr.append(td)}
+        profitRows.append(tr);
+      }
+      if(!(result.profitRanking||[]).length)profitRows.innerHTML='<tr><td colspan="6">No completed fork reports with priced net-profit values yet. This is not a zero-profit result.</td></tr>';
+      historyRows.replaceChildren();
+      for(const job of result.recent||[]){
+        const tr=document.createElement('tr');
+        const vals=[String(job.id),String(job.status),String(job.attempts),
+          String(job.priorityBand)+' · '+String(job.priorityScore),String(job.lastError||'—'),
+          job.updatedAt?new Date(job.updatedAt).toLocaleString():'—'];
+        for(const value of vals){const td=document.createElement('td');td.textContent=value;tr.append(td)}
+        historyRows.append(tr);
+      }
+      if(!(result.recent||[]).length)historyRows.innerHTML='<tr><td colspan="6">No simulation jobs have been recorded yet.</td></tr>';
+    }catch(error){
+      profitRows.innerHTML='<tr><td colspan="6">Analytics unavailable: '+esc(error instanceof Error?error.message:'Unknown error')+'</td></tr>';
+      historyRows.innerHTML='<tr><td colspan="6">Could not load simulation history.</td></tr>';
+      document.getElementById('simSummary').textContent='Check the API deployment and persistent database connection.';
+    }finally{if(button)button.disabled=false}
+  }
   async function refresh(){
     try{
       const [statusRes,borrowersRes,scanRes]=await Promise.all([
@@ -300,6 +354,7 @@
       document.getElementById('opportunityNote').textContent='Check Ethereum RPC configuration and service logs.';
     }finally{button.disabled=false}
   }
+  document.getElementById('refreshSimulationAnalytics').addEventListener('click',loadSimulationAnalytics);
   document.getElementById('refreshMorpho').addEventListener('click',loadMorpho);
   document.getElementById('refreshOpportunities').addEventListener('click',loadOpportunities);
   document.getElementById("refreshMarket").addEventListener("click",loadMarket);
@@ -385,7 +440,7 @@
     }catch(error){output.textContent='Estimate unavailable: '+(error instanceof Error?error.message:'Unknown error')}
     finally{estimateButton.disabled=false}
   });
-  refresh();loadMarket();loadOpportunities();loadMorpho();setInterval(refresh,60000);setInterval(loadMarket,30000);setInterval(loadOpportunities,60000);setInterval(loadMorpho,60000);
+  refresh();loadMarket();loadOpportunities();loadMorpho();loadSimulationAnalytics();setInterval(refresh,60000);setInterval(loadMarket,30000);setInterval(loadOpportunities,60000);setInterval(loadMorpho,60000);setInterval(loadSimulationAnalytics,30000);
 </script>
 </body>
 </html>
