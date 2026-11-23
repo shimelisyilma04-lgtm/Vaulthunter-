@@ -139,7 +139,8 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
     }
     const isForkSimulationPost = req.method === "POST" && ["/api/v1/simulation/fork", "/api/v1/simulation/aave-liquidation", "/api/v1/simulation/multichain", "/api/v1/simulation/morpho-executor"].includes(url.pathname);
     const isMorphoQueueWorkerPost = req.method === "POST" &&
-      (url.pathname === "/api/v1/morpho/simulations/claim" || /^\\/api\\/v1\\/morpho\\/simulations\\/\\d+\\/result$/.test(url.pathname));
+      (url.pathname === "/api/v1/morpho/simulations/claim" ||
+       (url.pathname.startsWith("/api/v1/morpho/simulations/") && url.pathname.endsWith("/result")));
     if (req.method !== "GET" && !isForkSimulationPost && !isMorphoQueueWorkerPost) {
       send(res, 405, { error: "method_not_allowed", message: "Only GET and the read-only fork simulation POST endpoint are supported." });
       return;
@@ -155,6 +156,49 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
       return;
     }
     try {
+      if (isMorphoQueueWorkerPost) {
+        if (!morphoStore) {
+          send(res, 503, { error: "morpho_storage_unavailable" });
+          return;
+        }
+        const supplied = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+        const expected = config.VAULTHUNTER_SIMULATION_API_TOKEN ?? "";
+        const suppliedBuffer = Buffer.from(supplied);
+        const expectedBuffer = Buffer.from(expected);
+        if (!expected || suppliedBuffer.length !== expectedBuffer.length || !timingSafeEqual(suppliedBuffer, expectedBuffer)) {
+          send(res, 401, { error: "unauthorized", message: "A valid simulation worker bearer token is required." });
+          return;
+        }
+        if (url.pathname === "/api/v1/morpho/simulations/claim") {
+          const job = await morphoStore.claimSimulationJob(1);
+          send(res, 200, { job, simulationOnly: true, mainnetExecutionEnabled: false });
+          return;
+        }
+        const segments = url.pathname.split("/");
+        const rawId = segments[5] ?? "";
+        const jobId = Number(rawId);
+        if (segments.length !== 7 || !/^\\d+$/.test(rawId) || !Number.isSafeInteger(jobId) || jobId <= 0) {
+          send(res, 404, { error: "simulation_job_not_found" });
+          return;
+        }
+        let body: Record<string, unknown>;
+        try { body = await readJsonBody(req); }
+        catch (error) {
+          send(res, 400, { error: "invalid_request_body", message: error instanceof Error ? error.message : "Invalid JSON" });
+          return;
+        }
+        const status = body.status;
+        if (status !== "completed" && status !== "rejected" && status !== "failed") {
+          send(res, 400, { error: "invalid_simulation_result_status" });
+          return;
+        }
+        const result = body.result && typeof body.result === "object" && !Array.isArray(body.result)
+          ? body.result as Record<string, unknown> : {};
+        const lastError = typeof body.lastError === "string" ? body.lastError.slice(0,1000) : null;
+        const saved = await morphoStore.completeSimulationJob(jobId, status, result, lastError);
+        send(res, saved ? 200 : 409, { saved, status, simulationOnly: true, mainnetExecutionEnabled: false });
+        return;
+      }
       if (isForkSimulationPost) {
         if (!config.ETHEREUM_FORK_RPC_URL || !config.VAULTHUNTER_SIMULATION_API_TOKEN) {
           send(res, 503, { error: "fork_not_configured", message: "Set ETHEREUM_FORK_RPC_URL and a strong VAULTHUNTER_SIMULATION_API_TOKEN. Use an isolated Anvil/Hardhat fork, never a mainnet transaction broadcaster." });
