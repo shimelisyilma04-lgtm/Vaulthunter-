@@ -12,6 +12,39 @@ function makeStore(): MorphoStore {
 }
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  it("persists simulation queue jobs idempotently and records immutable result fields", () => {
+    const store = makeStore();
+    const job = {
+      chainId: 1, marketId: market.marketId,
+      borrower: "0x0000000000000000000000000000000000000005",
+      validationBlock: 123, validationBlockHash: "0xblockhash",
+      priorityScore: 80, priorityBand: "high" as const,
+      payload: { status: "partially-validated", healthFactor: 0.95 }
+    };
+    expect(store.enqueueSimulationJobs([job])).toBe(1);
+    expect(store.enqueueSimulationJobs([job])).toBe(0);
+    const claimed = store.claimSimulationJob(1);
+    expect(claimed?.status).toBe("running");
+    expect(claimed?.attempts).toBe(1);
+    expect(claimed?.payload.healthFactor).toBe(0.95);
+    expect(store.completeSimulationJob(claimed!.id, "completed", {
+      settlementVerified: true, transactionSubmitted: false, realizedProfit: "123"
+    })).toBe(true);
+    expect(store.completeSimulationJob(claimed!.id, "completed", {})).toBe(false);
+    const history = store.listSimulationJobs(1, ["completed"], 10);
+    expect(history).toHaveLength(1);
+    expect(history[0]?.result?.settlementVerified).toBe(true);
+    expect(history[0]?.status).toBe("completed");
+    expect(store.listSimulationJobs(1, ["queued","running"], 10)).toHaveLength(0);
+    store.close();
+  });
+
+  it("returns no simulation job when the queue is empty", () => {
+    const store = makeStore();
+    expect(store.claimSimulationJob(1)).toBeNull();
+    store.close();
+  });
+
 });
 
 const market: MorphoMarket = {
