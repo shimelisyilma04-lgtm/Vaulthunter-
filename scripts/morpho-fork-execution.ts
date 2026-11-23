@@ -27,6 +27,11 @@ type Candidate = {
   validationBlockHash: string;
   marketParams: { loanToken: string; collateralToken: string; oracle: string; irm: string; lltv: string };
   oraclePrice: string;
+  marketState: {
+    totalSupplyAssets: string; totalSupplyShares: string; totalBorrowAssets: string;
+    totalBorrowShares: string; lastUpdate: string; fee: string;
+  };
+  positionState: { supplyShares: string; borrowShares: string; collateralAssets: string };
   debtAssets: string;
   collateralAssets: string;
   estimatedRepaidAssets: string;
@@ -197,7 +202,9 @@ async function main(): Promise<void> {
           collateralToken,
           oracle: candidate.marketParams.oracle,
           oraclePrice: candidate.oraclePrice,
-          debtAssetsSnapshot: candidate.debtAssets,
+          marketState: candidate.marketState,
+          positionState: candidate.positionState,
+          accruedBorrowDebtAssets: candidate.debtAssets,
           collateralAssetsSnapshot: candidate.collateralAssets,
           liquidationMode: candidate.liquidationMath.mode,
           flashAmount: flashAmount.toString(),
