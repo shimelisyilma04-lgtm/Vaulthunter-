@@ -151,7 +151,7 @@ async function simulate(job: Job): Promise<{ status: "completed" | "rejected"; r
 
 async function main(): Promise<void> {
   if (!TOKEN) throw new Error("Missing VAULTHUNTER_SIMULATION_API_TOKEN");
-  const claimed = await api("/api/v1/morpho/simulations/claim", "POST", {});
+  // The opportunities endpoint is the queue producer: it validates fresh candidates and inserts eligible jobs.\n  // Run it before claiming so a newly deployed worker does not permanently report an empty queue.\n  const discovery = await api("/api/v1/morpho/opportunities?limit=10", "GET");\n  process.stdout.write(JSON.stringify({ stage: "queue-discovery", simulationQueue: discovery.simulationQueue ?? null }) + "\\n");\n  const claimed = await api("/api/v1/morpho/simulations/claim", "POST", {});
   const job = claimed.job as Job | null;
   if (!job) { process.stdout.write(JSON.stringify({ status: "QUEUE_EMPTY", transactionSubmitted: false }) + "\n"); return; }
   try {
