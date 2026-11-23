@@ -2,6 +2,14 @@ name: Full Morpho liquidation simulation on isolated Ethereum fork
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/read-only-api-live-dashboard
+    paths:
+      - .github/workflows/morpho-fork-execution.yml
+      - scripts/morpho-fork-execution.ts
+      - contracts/**
+      - test/**
 
 permissions:
   contents: read
