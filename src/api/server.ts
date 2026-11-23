@@ -177,7 +177,9 @@ export function startHttpServer(store: AaveStorePort, morphoStore?: MorphoStoreP
         const segments = url.pathname.split("/");
         const rawId = segments[5] ?? "";
         const jobId = Number(rawId);
-        if (segments.length !== 7 || !/^\\d+$/.test(rawId) || !Number.isSafeInteger(jobId) || jobId <= 0) {
+        if (segments.length !== 7 || rawId.length === 0 ||
+            !Array.from(rawId).every((ch) => ch >= "0" && ch <= "9") ||
+            !Number.isSafeInteger(jobId) || jobId <= 0) {
           send(res, 404, { error: "simulation_job_not_found" });
           return;
         }
