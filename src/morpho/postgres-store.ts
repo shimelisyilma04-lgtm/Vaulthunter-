@@ -43,6 +43,18 @@ export class PostgresMorphoStore implements MorphoStorePort {
         ON morpho_borrowers(chain_id, market_id, health_factor_wad);
       CREATE INDEX IF NOT EXISTS idx_morpho_refresh
         ON morpho_borrowers(chain_id, market_id, snapshot_updated_at);
+      CREATE TABLE IF NOT EXISTS morpho_simulation_jobs (
+        id BIGSERIAL PRIMARY KEY, chain_id INTEGER NOT NULL, market_id TEXT NOT NULL, borrower TEXT NOT NULL,
+        validation_block BIGINT NOT NULL, validation_block_hash TEXT NOT NULL,
+        priority_score INTEGER NOT NULL, priority_band TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
+        payload_json JSONB NOT NULL, result_json JSONB, last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        claimed_at TIMESTAMPTZ,
+        UNIQUE(chain_id, market_id, borrower, validation_block)
+      );
+      CREATE INDEX IF NOT EXISTS idx_morpho_simulation_queue
+        ON morpho_simulation_jobs(chain_id, status, priority_score DESC, created_at ASC);
     `);
   }
 
@@ -279,6 +291,77 @@ export class PostgresMorphoStore implements MorphoStorePort {
     }));
   }
 
+
+  async enqueueSimulationJobs(jobs: import("./store-port.js").MorphoSimulationJobInput[]): Promise<number> {
+    await this.ready; if (!jobs.length) return 0;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN"); let inserted = 0;
+      for (const job of jobs) {
+        const r = await client.query(`
+          INSERT INTO morpho_simulation_jobs
+          (chain_id,market_id,borrower,validation_block,validation_block_hash,priority_score,priority_band,payload_json)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+          ON CONFLICT(chain_id,market_id,borrower,validation_block) DO NOTHING
+        `,[job.chainId,job.marketId.toLowerCase(),job.borrower.toLowerCase(),job.validationBlock,
+          job.validationBlockHash,job.priorityScore,job.priorityBand,JSON.stringify(job.payload)]);
+        inserted += r.rowCount ?? 0;
+      }
+      await client.query("COMMIT"); return inserted;
+    } catch(e) { await client.query("ROLLBACK"); throw e; }
+    finally { client.release(); }
+  }
+  async claimSimulationJob(chainId: number): Promise<import("./store-port.js").MorphoSimulationJob | null> {
+    await this.ready; const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const selected = await client.query(`
+        SELECT * FROM morpho_simulation_jobs WHERE chain_id=$1
+        AND (status='queued' OR (status='running' AND claimed_at < NOW() - INTERVAL '5 minutes'))
+        ORDER BY priority_score DESC, created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
+      `,[chainId]);
+      const row = selected.rows[0];
+      if (!row) { await client.query("COMMIT"); return null; }
+      const updated = await client.query(`
+        UPDATE morpho_simulation_jobs SET status='running',attempts=attempts+1,
+        claimed_at=NOW(),updated_at=NOW() WHERE id=$1 RETURNING *
+      `,[row.id]);
+      await client.query("COMMIT"); return this.mapSimulationJob(updated.rows[0]);
+    } catch(e) { await client.query("ROLLBACK"); throw e; }
+    finally { client.release(); }
+  }
+  async completeSimulationJob(id: number, status: "completed" | "rejected" | "failed",
+    result: Record<string, unknown>, lastError: string | null = null): Promise<boolean> {
+    await this.ready;
+    const r = await this.pool.query(`
+      UPDATE morpho_simulation_jobs SET status=$1,result_json=$2::jsonb,last_error=$3,
+      updated_at=NOW(),claimed_at=NULL WHERE id=$4 AND status='running'
+    `,[status,JSON.stringify(result),lastError?.slice(0,1000) ?? null,id]);
+    return (r.rowCount ?? 0) === 1;
+  }
+  async listSimulationJobs(chainId: number,
+    statuses: Array<"queued" | "running" | "completed" | "rejected" | "failed">, limit: number
+  ): Promise<import("./store-port.js").MorphoSimulationJob[]> {
+    await this.ready;
+    const allowed = statuses.filter((x) => ["queued","running","completed","rejected","failed"].includes(x));
+    if (!allowed.length) return [];
+    const r = await this.pool.query(`
+      SELECT * FROM morpho_simulation_jobs WHERE chain_id=$1 AND status=ANY($2::text[])
+      ORDER BY created_at DESC LIMIT $3
+    `,[chainId,allowed,Math.max(1,Math.min(100,Math.trunc(limit)))]);
+    return r.rows.map((row) => this.mapSimulationJob(row));
+  }
+  private mapSimulationJob(row: Record<string, unknown>): import("./store-port.js").MorphoSimulationJob {
+    return {
+      id:Number(row.id),chainId:Number(row.chain_id),marketId:String(row.market_id),borrower:String(row.borrower),
+      validationBlock:Number(row.validation_block),validationBlockHash:String(row.validation_block_hash),
+      priorityScore:Number(row.priority_score),priorityBand:String(row.priority_band) as "high" | "medium" | "low",
+      status:String(row.status) as import("./store-port.js").MorphoSimulationJob["status"],attempts:Number(row.attempts),
+      payload:row.payload_json as Record<string, unknown>,result:row.result_json as Record<string, unknown> | null,
+      lastError:row.last_error == null ? null : String(row.last_error),
+      createdAt:new Date(String(row.created_at)).toISOString(),updatedAt:new Date(String(row.updated_at)).toISOString()
+    };
+  }
   async close(): Promise<void> {
     await this.ready;
     await this.pool.end();
