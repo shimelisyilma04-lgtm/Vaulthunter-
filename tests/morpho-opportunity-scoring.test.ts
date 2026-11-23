@@ -24,9 +24,9 @@ describe("Morpho opportunity triage scoring", () => {
       { borrower: "0xbbb", healthFactor: 1.1, snapshotAgeSeconds: 10 },
       { borrower: "0xaaa", healthFactor: 0.95, snapshotAgeSeconds: 10 }
     ]);
-    expect(ranked[0].borrower).toBe("0xaaa");
-    expect(ranked[0].priorityRank).toBe(1);
-    expect(ranked[1].priorityRank).toBe(2);
+    expect(ranked[0]?.borrower).toBe("0xaaa");
+    expect(ranked[0]?.priorityRank).toBe(1);
+    expect(ranked[1]?.priorityRank).toBe(2);
   });
 
   it("never gives points for malformed token amount strings", () => {
