@@ -323,6 +323,13 @@ export class PostgresMorphoStore implements MorphoStorePort {
         WHERE chain_id=$1 AND status='running'
           AND claimed_at < NOW() - INTERVAL '5 minutes' AND attempts>=3
       `,[chainId]);
+      await client.query(`
+        UPDATE morpho_simulation_jobs SET status='rejected',
+          last_error=COALESCE(last_error,'Queued opportunity expired before simulation'),
+          updated_at=NOW()
+        WHERE chain_id=$1 AND status='queued'
+          AND created_at < NOW() - INTERVAL '2 minutes'
+      `,[chainId]);
       const selected = await client.query(`
         SELECT * FROM morpho_simulation_jobs WHERE chain_id=$1 AND attempts<3
         AND (status='queued' OR (status='running' AND claimed_at < NOW() - INTERVAL '5 minutes'))
