@@ -315,8 +315,16 @@ export class PostgresMorphoStore implements MorphoStorePort {
     await this.ready; const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // Expired worker leases are retried at most twice; exhausted jobs become terminal failures.
+      await client.query(`
+        UPDATE morpho_simulation_jobs SET status='failed',
+          last_error=COALESCE(last_error,'Worker lease expired after maximum attempts'),
+          updated_at=NOW(),claimed_at=NULL
+        WHERE chain_id=$1 AND status='running'
+          AND claimed_at < NOW() - INTERVAL '5 minutes' AND attempts>=3
+      `,[chainId]);
       const selected = await client.query(`
-        SELECT * FROM morpho_simulation_jobs WHERE chain_id=$1
+        SELECT * FROM morpho_simulation_jobs WHERE chain_id=$1 AND attempts<3
         AND (status='queued' OR (status='running' AND claimed_at < NOW() - INTERVAL '5 minutes'))
         ORDER BY priority_score DESC, created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
       `,[chainId]);
