@@ -320,7 +320,7 @@ const UNISWAP_ROUTE_BRIDGES = [
   "0xdAC17F958D2ee523a2206206994597C13D831ec7", // USDT
   "0x6B175474E89094C44Da98b954EedeAC495271d0F", // DAI
   "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", // WBTC
-  "0x7f39C581F595B53c5cb5bD7b3b7E8f4B2bA0aA4", // wstETH
+  "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0", // wstETH
   "0xBe9895146f7AF43049ca1c1AE358B0541Ea49704", // cbETH
   "0xae78736Cd615f374D3085123A210448E74Fc6393", // rETH
   "0x514910771AF9Ca656af840dff83E8264EcF986CA", // LINK
@@ -335,7 +335,7 @@ export async function quoteUniswapV3BestRoute(
 ): Promise<Record<string, unknown> & { blockNumber: number; blockHash: string; amountOut: string | null; gasEstimate: string | null }> {
   const direct = await quoteUniswapV3BestExactInput(rpcUrl, input, validationBlock, expectedChainId);
   if (direct.amountOut !== null && BigInt(direct.amountOut) > 0n) {
-    return { ...direct, routeType: "direct", routeTokens: [getAddress(input.tokenIn), getAddress(input.tokenOut)] };
+    return { ...direct, routeType: "direct", routeTokens: [getAddress(input.tokenIn), getAddress(input.tokenOut)], swapPath: solidityPacked(["address", "uint24", "address"], [getAddress(input.tokenIn), direct.selectedFee!, getAddress(input.tokenOut)]) };
   }
   const bridges = UNISWAP_ROUTE_BRIDGES.filter((address) =>
     address.toLowerCase() !== input.tokenIn.toLowerCase() && address.toLowerCase() !== input.tokenOut.toLowerCase()
@@ -359,7 +359,12 @@ export async function quoteUniswapV3BestRoute(
       tokenIn: getAddress(input.tokenIn), tokenOut: getAddress(input.tokenOut), amountIn: input.amountIn,
       selectedFee: null, selectedFees: best.selectedFees, amountOut: best.amountOut, gasEstimate: best.gasEstimate,
       initializedTicksCrossed: null, candidates: direct.candidates, pathCandidates: paths,
-      routeType: "two-hop", routeTokens: best.tokens, source: "uniswap-v3-quoter-v2-multi-hop",
+      routeType: "two-hop", routeTokens: best.tokens,
+      swapPath: solidityPacked(
+        ["address", "uint24", "address", "uint24", "address"],
+        [best.tokens[0], best.selectedFees![0], best.tokens[1], best.selectedFees![1], best.tokens[2]]
+      ),
+      source: "uniswap-v3-quoter-v2-multi-hop",
       executionEnabled: false,
       warning: "Best two-hop Uniswap V3 quote across WETH, USDC, USDT and DAI bridges. Quote only; not a full liquidation transaction simulation."
     };
