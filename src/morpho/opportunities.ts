@@ -238,6 +238,19 @@ export async function evaluateMorphoOpportunities(store: MorphoStorePort, limit:
           collateralToken: { address: collateralToken, symbol: String(collateralSymbol), decimals: Number(collateralMeta) },
           marketParams: { loanToken, collateralToken, oracle: oracleAddress, irm: irmAddress, lltv: lltv.toString() },
           oraclePrice: price.toString(),
+          marketState: {
+            totalSupplyAssets: marketState.totalSupplyAssets.toString(),
+            totalSupplyShares: marketState.totalSupplyShares.toString(),
+            totalBorrowAssets: marketState.totalBorrowAssets.toString(),
+            totalBorrowShares: marketState.totalBorrowShares.toString(),
+            lastUpdate: marketState.lastUpdate.toString(),
+            fee: marketState.fee.toString()
+          },
+          positionState: {
+            supplyShares: BigInt(position[0] ?? 0n).toString(),
+            borrowShares: borrowShares.toString(),
+            collateralAssets: collateralAssets.toString()
+          },
           debtAssets: debtAssets.toString(), collateralAssets: collateralAssets.toString(),
           liquidationIncentiveFactor: Number(quote.liquidationIncentiveFactorWad) / 1e18,
           estimatedRepaidAssets: quote.repaidAssets.toString(),
