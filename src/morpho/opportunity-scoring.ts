@@ -61,8 +61,11 @@ export function scoreMorphoOpportunity(row: Record<string, unknown>): MorphoOppo
 
 /** Stable ordering: score first, then lower health factor, then borrower address. */
 export function rankMorphoOpportunities(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  return rows
-    .map((row) => ({ ...row, ...scoreMorphoOpportunity(row) }))
+  const scored: Array<Record<string, unknown>> = rows.map((row) => ({
+    ...row,
+    ...scoreMorphoOpportunity(row)
+  }));
+  return scored
     .sort((a, b) => {
       const scoreDelta = Number(b.priorityScore) - Number(a.priorityScore);
       if (scoreDelta !== 0) return scoreDelta;
