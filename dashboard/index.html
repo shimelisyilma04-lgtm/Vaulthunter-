@@ -124,7 +124,7 @@
       <div class="calc-result" id="estimateResult" aria-live="polite">Enter real market inputs to calculate a conservative screening estimate. No sample opportunity is preloaded.</div>
     </section>
     <section class="panel" style="margin:16px 0" id="simulationAnalytics">
-      <div class="paneltitle"><h2>Simulation performance &amp; profit ranking</h2><button class="details-button" id="refreshSimulationAnalytics">Refresh results</button></div>
+      <div class="paneltitle"><h2>Simulation performance &amp; profit ranking</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="details-button" id="discoverMorphoSimulations" type="button">Discover &amp; queue</button><button class="details-button" id="refreshSimulationAnalytics" type="button">Refresh results</button></div></div>
       <div class="cards" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:14px">
         <div class="card"><div class="cardhead">Queued</div><div class="metric" id="simQueued">—</div></div>
         <div class="card"><div class="cardhead">Running</div><div class="metric" id="simRunning">—</div></div>
@@ -354,6 +354,27 @@
       document.getElementById('opportunityNote').textContent='Check Ethereum RPC configuration and service logs.';
     }finally{button.disabled=false}
   }
+  async function discoverAndQueueMorpho(){
+    const button=document.getElementById('discoverMorphoSimulations');
+    const summary=document.getElementById('simSummary');
+    button.disabled=true;
+    summary.textContent='Revalidating fresh Morpho candidates at one pinned Ethereum block and checking swap/flash-loan routes…';
+    try{
+      const response=await fetch('/api/v1/morpho/opportunities?limit=10');
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.message||result.error||'Morpho opportunity discovery failed');
+      const q=result.simulationQueue||{};
+      const eligible=Number(q.candidatesEligible||0),queued=Number(q.newlyQueued||0);
+      summary.textContent='Discovery finished · '+String(result.candidatesChecked??0)+' candidates checked at block '+String(result.validationBlock??'—')+
+        ' · '+eligible+' eligible for fork simulation · '+queued+' newly queued. '+
+        (eligible===0?'No candidate passed every freshness, route, funding and priority gate; no artificial jobs were added.':'Queue is ready; a fork-only worker must claim jobs to create result history.')+
+        ' Mainnet execution remains disabled.';
+      await loadSimulationAnalytics();
+    }catch(error){
+      summary.textContent='Discovery failed: '+(error instanceof Error?error.message:'Unknown error')+'. Check the Morpho RPC and Render logs.';
+    }finally{button.disabled=false}
+  }
+  document.getElementById('discoverMorphoSimulations').addEventListener('click',discoverAndQueueMorpho);
   document.getElementById('refreshSimulationAnalytics').addEventListener('click',loadSimulationAnalytics);
   document.getElementById('refreshMorpho').addEventListener('click',loadMorpho);
   document.getElementById('refreshOpportunities').addEventListener('click',loadOpportunities);
