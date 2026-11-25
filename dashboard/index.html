@@ -162,7 +162,7 @@
         document.getElementById('sim'+key[0].toUpperCase()+key.slice(1)).textContent=String(result.counts?.[key]??0);
       }
       document.getElementById('simSummary').textContent=
-        'Latest '+result.sampleSize+' stored jobs · '+result.outcomeCount+' with outcomes · rankings are comparable only within the same loan token.';
+        result.sampleSize===0?'No simulation jobs have been saved yet · use “Discover & queue” to run pinned-block validation. Candidates without verified flash-loan liquidity or a swap route are filtered out; this is not a zero-profit result.':'Latest '+result.sampleSize+' stored jobs · '+result.outcomeCount+' with outcomes · rankings are comparable only within the same loan token.';
       profitRows.replaceChildren();
       for(const item of result.profitRanking||[]){
         const tr=document.createElement('tr');
@@ -171,7 +171,7 @@
         for(const value of vals){const td=document.createElement('td');td.textContent=value;tr.append(td)}
         profitRows.append(tr);
       }
-      if(!(result.profitRanking||[]).length)profitRows.innerHTML='<tr><td colspan="6">No completed fork reports with priced net-profit values yet. This is not a zero-profit result.</td></tr>';
+      if(!(result.profitRanking||[]).length)profitRows.innerHTML='<tr><td colspan="6">No priced fork-simulation results are saved yet. This does not mean profit is zero. Tap “Discover &amp; queue” to validate fresh candidates; only candidates with verified funding, a valid swap route and sufficient priority can enter the fork-only queue.</td></tr>';
       historyRows.replaceChildren();
       for(const job of result.recent||[]){
         const tr=document.createElement('tr');
