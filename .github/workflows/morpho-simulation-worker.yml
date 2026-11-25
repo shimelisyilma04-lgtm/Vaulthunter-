@@ -1,4 +1,5 @@
 name: Persistent Morpho simulation queue worker
+# One-shot diagnostic trigger: push commits to this workflow path to run one isolated-fork job.
 
 on:
   workflow_dispatch:
