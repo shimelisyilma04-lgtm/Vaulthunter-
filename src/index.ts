@@ -132,7 +132,7 @@ async function runMorphoIndexerLoop(): Promise<void> {
 
 async function runMorphoSimulationWorkerLoop(): Promise<void> {
   const token = process.env.VAULTHUNTER_SIMULATION_API_TOKEN;
-  const forkRpc = process.env.ETHEREUM_FORK_UPSTREAM_RPC_URL;
+  const forkRpc = process.env.ETHEREUM_FORK_UPSTREAM_RPC_URL ?? process.env.ETHEREUM_FORK_RPC_URL;
   if (config.NODE_ENV !== "production" || !token || !forkRpc) {
     logger.info({
       enabled: false,
