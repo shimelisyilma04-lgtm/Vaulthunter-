@@ -177,16 +177,20 @@ async function main(): Promise<void> {
   }
 }
 const pollIntervalMs = Math.max(5000, Number(process.env.VAULTHUNTER_SIMULATION_POLL_INTERVAL_MS ?? 15000));
+let workerStopping = false;
+process.once("SIGTERM", () => { workerStopping = true; });
+process.once("SIGINT", () => { workerStopping = true; });
 async function runWorkerLoop(): Promise<void> {
   process.stdout.write(JSON.stringify({ event: "simulation-worker-started", pollIntervalMs, simulationOnly: true }) + "\\n");
-  while (!process.signalCode) {
+  while (!workerStopping) {
     try {
       await main();
     } catch (error) {
       process.stderr.write((error instanceof Error ? error.stack : String(error)) + "\\n");
     }
-    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    if (!workerStopping) await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
   }
+  process.stdout.write(JSON.stringify({ event: "simulation-worker-stopped" }) + "\\n");
 }
 runWorkerLoop().catch(error => {
   process.stderr.write((error instanceof Error ? error.stack : String(error)) + "\\n");
