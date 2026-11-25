@@ -7,7 +7,7 @@ import { quoteUniswapV3BestRoute } from "../src/aave/uniswap-quote.js";
 
 const API = process.env.VAULTHUNTER_API_URL ?? "https://vaulthunter-core.onrender.com";
 const TOKEN = process.env.VAULTHUNTER_SIMULATION_API_TOKEN;
-const UPSTREAM_RPC = process.env.ETHEREUM_FORK_UPSTREAM_RPC_URL;
+const UPSTREAM_RPC = process.env.ETHEREUM_FORK_UPSTREAM_RPC_URL ?? process.env.ETHEREUM_FORK_RPC_URL;
 const LOCAL_RPC = "http://127.0.0.1:8545";
 const AAVE_POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 const MORPHO_BLUE = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
