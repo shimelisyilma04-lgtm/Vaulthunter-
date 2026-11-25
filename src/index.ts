@@ -1,4 +1,5 @@
 import pino from "pino";
+import { spawn, type ChildProcess } from "node:child_process";
 import { config, morphoRpcConfigError, rpcConfigError } from "./config.js";
 import { AaveStore } from "./aave/store-factory.js";
 import { runAaveIndexerPass } from "./aave/indexer.js";
@@ -30,6 +31,7 @@ if (rpcConfigError) {
 }
 
 let stopping = false;
+let simulationWorker: ChildProcess | undefined;
 
 async function runIndexerLoop(): Promise<void> {
   if (!config.AAVE_INDEXER_ENABLED) {
@@ -127,10 +129,49 @@ async function runMorphoIndexerLoop(): Promise<void> {
   }
 }
 
+
+async function runMorphoSimulationWorkerLoop(): Promise<void> {
+  const token = process.env.VAULTHUNTER_SIMULATION_API_TOKEN;
+  const forkRpc = process.env.ETHEREUM_FORK_UPSTREAM_RPC_URL;
+  if (config.NODE_ENV !== "production" || !token || !forkRpc) {
+    logger.info({
+      enabled: false,
+      missing: [
+        ...(!token ? ["VAULTHUNTER_SIMULATION_API_TOKEN"] : []),
+        ...(!forkRpc ? ["ETHEREUM_FORK_UPSTREAM_RPC_URL"] : [])
+      ]
+    }, "Morpho fork simulation worker is not configured; API and indexers remain available");
+    return;
+  }
+
+  logger.info({ pollIntervalMs: 15000, simulationOnly: true }, "Starting in-process supervised Morpho fork worker");
+  while (!stopping) {
+    await new Promise<void>((resolve) => {
+      const foundryBin = process.env.HOME ? `${process.env.HOME}/.foundry/bin` : "";
+      const childPath = [foundryBin, process.env.PATH ?? ""].filter(Boolean).join(":");
+      simulationWorker = spawn(process.execPath, ["dist/scripts/morpho-simulation-worker.js"], {
+        stdio: ["ignore", "inherit", "inherit"],
+        env: { ...process.env, PATH: childPath }
+      });
+      simulationWorker.once("error", (error) => {
+        logger.error({ error: error.message }, "Morpho simulation worker failed to start");
+        resolve();
+      });
+      simulationWorker.once("close", (code, signal) => {
+        logger.warn({ code, signal }, "Morpho simulation worker exited; supervisor will restart it");
+        simulationWorker = undefined;
+        resolve();
+      });
+    });
+    if (!stopping) await new Promise((resolve) => setTimeout(resolve, 10000));
+  }
+}
+
 function shutdown(signal: string): void {
   if (stopping) return;
   stopping = true;
   logger.info({ signal }, "Shutting down VaultHunter");
+  simulationWorker?.kill("SIGTERM");
   server.close(() => {
     void Promise.allSettled(backgroundLoops).then(async () => {
       await Promise.allSettled([store.close(), ...(morphoStore ? [morphoStore.close()] : [])]);
@@ -143,4 +184,4 @@ function shutdown(signal: string): void {
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 
-const backgroundLoops: Promise<void>[] = [runIndexerLoop(), runMorphoIndexerLoop()];
+const backgroundLoops: Promise<void>[] = [runIndexerLoop(), runMorphoIndexerLoop(), runMorphoSimulationWorkerLoop()];
