@@ -176,4 +176,19 @@ async function main(): Promise<void> {
     }
   }
 }
-main().catch(error => { process.stderr.write((error instanceof Error ? error.stack : String(error)) + "\n"); process.exitCode = 1; });
+const pollIntervalMs = Math.max(5000, Number(process.env.VAULTHUNTER_SIMULATION_POLL_INTERVAL_MS ?? 15000));
+async function runWorkerLoop(): Promise<void> {
+  process.stdout.write(JSON.stringify({ event: "simulation-worker-started", pollIntervalMs, simulationOnly: true }) + "\\n");
+  while (!process.signalCode) {
+    try {
+      await main();
+    } catch (error) {
+      process.stderr.write((error instanceof Error ? error.stack : String(error)) + "\\n");
+    }
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+  }
+}
+runWorkerLoop().catch(error => {
+  process.stderr.write((error instanceof Error ? error.stack : String(error)) + "\\n");
+  process.exitCode = 1;
+});
